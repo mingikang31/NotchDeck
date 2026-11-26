@@ -162,10 +162,10 @@ nonisolated enum NotchModule: String, CaseIterable, Codable, Identifiable, Senda
     }
 
     /// Latest roadmap phase that has shipped; modules at or below it are functional.
-    static let shippedThroughPhase = 5
+    static let shippedThroughPhase = 6
 
     /// Modules from a later phase that have already shipped.
-    static let shippedEarly: Set<NotchModule> = [.systemMonitor]
+    static let shippedEarly: Set<NotchModule> = []
 
     var isAvailable: Bool { phase <= Self.shippedThroughPhase || Self.shippedEarly.contains(self) }
 

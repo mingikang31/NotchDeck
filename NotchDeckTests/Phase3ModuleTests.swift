@@ -297,9 +297,8 @@ struct ModuleSelectionTests {
     @Test func shippedModulesAreAvailable() {
         #expect(NotchModule.media.isAvailable && NotchModule.fileTray.isAvailable && NotchModule.calendar.isAvailable)
         #expect(NotchModule.aiChat.isAvailable && NotchModule.agentHooks.isAvailable)
-        #expect(!NotchModule.pomodoro.isAvailable)
-        #expect(ShortcutAction.togglePlayPause.pendingModule == nil)
-        #expect(ShortcutAction.approveAgentRequest.pendingModule == nil)
-        #expect(ShortcutAction.togglePomodoro.pendingModule == .pomodoro)
+        #expect(NotchModule.pomodoro.isAvailable && NotchModule.mirror.isAvailable)
+        // Every shortcut drives a shipped module now (Phase 6 done).
+        #expect(ShortcutAction.allCases.allSatisfy { $0.pendingModule == nil })
     }
 }

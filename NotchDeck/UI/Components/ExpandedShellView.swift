@@ -91,7 +91,11 @@ struct ExpandedShellView: View {
         case .aiChat: AIChatModuleView(tokens: tokens)
         case .agentHooks: AgentHooksModuleView(tokens: tokens)
         case .systemMonitor: SystemMonitorModuleView(tokens: tokens)
-        default: ComingSoonView(module: module, tokens: tokens)
+        case .liveActivities: LiveActivitiesModuleView(tokens: tokens)
+        case .pomodoro: PomodoroModuleView(tokens: tokens)
+        case .todos: TodosModuleView(tokens: tokens)
+        case .clipboard: ClipboardModuleView(tokens: tokens)
+        case .mirror: MirrorModuleView(tokens: tokens)
         }
     }
 }
@@ -136,28 +140,6 @@ private struct ModuleTabStrip: View {
                 .accessibilityLabel(module.displayName)
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
-        }
-    }
-}
-
-/// Placeholder body for modules that ship in a later phase.
-private struct ComingSoonView: View {
-    let module: NotchModule
-    let tokens: ThemeTokens
-
-    var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: module.symbolName)
-                .font(.system(size: 22, weight: .semibold))
-                .frame(width: 56, height: 56)
-                .background(tokens.controlFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(module.displayName).font(.system(size: 14, weight: .semibold))
-                Text("Arrives in Phase \(module.phase) of the roadmap.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(tokens.secondaryText)
-            }
-            Spacer()
         }
     }
 }

@@ -4,7 +4,7 @@ The running notebook for this project: what exists, how to work it, what to watc
 what's next. Kept up to date as each phase lands. The full product spec is
 [`notchdeck_technical_specification.txt`](notchdeck_technical_specification.txt).
 
-_Last updated: 2026-11-26, Phase 5 committed; System Monitor + Phase 6 in progress._
+_Last updated: 2026-11-26, System Monitor committed; Phase 6 built (needs hands-on check)._
 
 ---
 
@@ -17,8 +17,8 @@ _Last updated: 2026-11-26, Phase 5 committed; System Monitor + Phase 6 in progre
 | 3 | Now Playing + visualizer, File Tray (drag in/out, AirDrop, zip), Calendar banner + meeting links | ✅ Done (confirmed) |
 | 4 | Embedded AI Chat (Claude + Gemini streaming, Markdown, attachments, focus shortcut) | ✅ Done (Claude chat confirmed) |
 | 5 | Claude Code & Codex agent hooks (127.0.0.1 server, hook installer, Approve/Deny card) | ✅ Done (Claude Code confirmed; Codex believed working) |
-| 6 | Live Activities (battery, Bluetooth, Downloads), Pomodoro, To-Dos, Clipboard, Camera Mirror | 🚧 In progress |
-| + | System Monitor tab (CPU / GPU / memory, asitop/macmon-style), requested 2026-11-26 | ✅ Built (needs hands-on check) |
+| 6 | Live Activities (battery, Bluetooth, Downloads), Pomodoro, To-Dos, Clipboard, Camera Mirror | ✅ Built (needs hands-on check) |
+| + | System Monitor tab (CPU / GPU / memory, asitop/macmon-style), requested 2026-11-26 | ✅ Done (styles approved) |
 
 ---
 
@@ -117,6 +117,30 @@ Or open `NotchDeck.xcodeproj` in Xcode and press ⌘R / ⌘U. New `.swift` files
   Teams and Webex links. The ↻ button re-syncs now; the sliders button opens the calendar settings.
 - **Choosing calendars:** Settings → Modules → Calendar → *Choose Calendars…* (grouped by account). Same place:
   range (next 24 h / 3 days / 7 days, default 3 days) and *Include all-day events* (default on).
+- **Live Activities** (bolt tab): battery card (percent, charging state, time left / to full, live watts in or
+  out, adapter rating, health and cycle count), connected Bluetooth devices with battery levels (AirPods L / R /
+  case, Magic Keyboard / Mouse / Trackpad), and the last downloads.
+  - **Pills beside the notch** for a few seconds: plugged in / unplugged / charged, low battery at 20 %, 10 %
+    and 5 %, a device connecting (with its battery), a new download. Hover or click the notch while one shows
+    and it opens on the matching tab.
+  - **Downloads:** each row can be dragged straight into any app, AirDropped, added to the File Tray, or shown
+    in Finder; double-click opens it. Only files that *finished* downloading count (browser temp names like
+    `.crdownload` / `.download` / `.part` are ignored until they're renamed).
+  - Turn each one on or off in Settings → Modules → Live Activities. The tab's height fits its content.
+- **Pomodoro** (timer tab): ring countdown, Start / Pause / Resume, Skip, Reset, sessions today, dots for the
+  cycle. While it runs (or is paused) the countdown sits beside the notch; urgent meetings and agent requests
+  still take priority over it, and it takes priority over music. When a phase ends: a chime and a pill.
+  Durations (focus 25, break 5, long break 15 min, long break every 4) and auto-start in Settings → Modules →
+  Pomodoro. Shortcut: *Start / Pause Pomodoro* (record one in Settings → Shortcuts). A running timer survives
+  a relaunch.
+- **To-Dos** (checklist tab): type and press Return to add; click the circle to tick; double-click a title to
+  edit (empty title deletes); hover → ✕ to delete; *Clear Done*. Finished items sink to the bottom. Saved to
+  `~/Library/Application Support/NotchDeck/todos.json`.
+- **Clipboard** (clipboard tab): the last 25 clips (text, images, copied files). Click one to put it back on
+  the clipboard, then ⌘V. Memory only, never written to disk, cleared when NotchDeck quits. Password-manager
+  copies are skipped. **Needs one macOS setting** to record by itself (see §4 Clipboard).
+- **Mirror** (camera tab): mirrored camera preview; pick another camera (Continuity Camera, external) from the
+  top-right button. The camera runs only while the tab is open. Shortcut: *Toggle Camera Mirror*.
 
 ### Default shortcuts (change in Settings → Shortcuts)
 
@@ -125,7 +149,7 @@ Or open `NotchDeck.xcodeproj` in Xcode and press ⌘R / ⌘U. New `.swift` files
 | Toggle notch | ⌃⌥N |
 | Open AI Chat | ⌥Space (opens the notch until Phase 4 adds the chat) |
 | Play / Pause media, Open File Tray | unset; works once you record one |
-| Pomodoro, Camera Mirror, Approve Agent | unset; take effect in later phases |
+| Pomodoro (start / pause), Camera Mirror (open / close), Approve Agent | unset; work once you record one |
 
 ### Debug launch flags
 
@@ -259,11 +283,14 @@ which gives the app a **stable identity across every version and update**.
 ### Permissions
 - **Per-session permissions (default ON):** Settings → General → Privacy → *Ask for permissions every time
   NotchDeck opens*. macOS has no "allow until quit" option, so NotchDeck resets **its own** approvals
-  (Automation, Calendars, Reminders, Camera) with `tccutil reset <service> com.notchdeck.NotchDeck` at
+  (Automation, Calendars, Reminders, Camera, Screen Recording, Bluetooth, Downloads folder) with
+  `tccutil reset <service> com.notchdeck.NotchDeck` at
   launch and at quit. Grants last while it runs; the next launch asks again. No admin rights needed.
   Turn it off to have macOS remember approvals normally.
   - Expect prompts at **every launch** (including launch at login): "control Spotify/Music" when a player
-    is running, and Calendars if you had connected it before.
+    is running, Calendars if you had connected it before, and, with Live Activities on, **Bluetooth** and
+    **Downloads folder**. Camera asks when you first open Mirror. If that's too many, turn off the Bluetooth
+    or Downloads watcher in Settings → Modules, or turn off per-session permissions.
   - A force quit / crash skips the quit-time reset; the launch-time reset covers that.
 - **Automation (Music / Spotify):** NotchDeck triggers the prompt by sending the player a harmless
   "get player state" Apple event with a **10-minute timeout** on its own queue, and runs no player scripts
@@ -447,6 +474,47 @@ which gives the app a **stable identity across every version and update**.
 - Debug flag to open a given tab at launch: `-notchdeck.debug.startExpanded YES -notchdeck.debug.startModule systemMonitor`
   (any module's raw name).
 
+### Live Activities
+- **Battery:** IOPowerSources run-loop notification (no polling, no permission) plus the `AppleSmartBattery`
+  driver for watts (voltage × instant current; signed value can arrive as an unsigned 64-bit number), cycle
+  count and health (raw max ÷ design capacity). Watts refresh every 3 s only while the tab is open. Desktops
+  have no battery: the card and toggle are disabled.
+- **Bluetooth battery levels use undocumented properties** (`batteryPercentLeft/Right/Case/Single` on
+  `IOBluetoothDevice`), each checked with `responds(to:)` before reading, so a macOS change just hides the
+  levels. Magic accessories come from their HID service's `BatteryPercent`. Devices already connected at
+  launch are listed but don't toast (3 s quiet period). The toast waits 1.5 s so AirPods levels arrive first.
+- **Downloads:** kqueue DispatchSource on the folder (write / rename / link), 0.6 s debounce, then a file is
+  reported once its size is stable for 1 s. The first read runs off the main thread because it blocks while
+  macOS shows the Files & Folders prompt. If access is denied, the card says where to allow it.
+- Toasts are one at a time; a newer one replaces the current one (`NotchToastCenter`).
+- **Not hands-on tested yet** (need real events): plugging/unplugging, AirPods connecting, a real browser
+  download. The logic is unit-tested, including a simulated `.crdownload` → final-name rename.
+
+### Pomodoro, To-Dos, Mirror
+- Pomodoro state is stored in UserDefaults (`notchdeck.pomodoro.state`) so a running timer survives a quit; a
+  phase that ended while NotchDeck was closed advances quietly on launch (no chime). Turning the module off
+  pauses a running timer. Skipped focus sessions don't count.
+- To-Dos are plain JSON (dates as exact Doubles). An unreadable file is copied to `todos.unreadable.json`
+  instead of being overwritten.
+- Mirror: `AVCaptureSession` on its own serial queue; started on tab appear, stopped on disappear (closing the
+  notch turns the green light off). Needs the hardened-runtime camera entitlement (added) and
+  `NSCameraUsageDescription`; Continuity Camera is allowed via `NSCameraUseContinuityCameraDeviceType`.
+
+### Clipboard
+- **macOS asks before an app reads what other apps copied** (`NSPasteboard.accessBehavior`, macOS 15.4+).
+  Polling `changeCount` never asks, but reading the contents would show a prompt *on every copy* unless the
+  app is set to **Allow** in System Settings → Privacy & Security → **Paste from Other Apps**. So:
+  - set to Allow → the history records by itself;
+  - not set yet (`default` / `ask`) → nothing is read automatically; the tab explains the setting and offers
+    *Grab Current Clip* (one read, which may show macOS's prompt; that first prompt is also what makes
+    NotchDeck appear in that settings list);
+  - set to Deny → the tab says so.
+  The setting is re-checked every 3 s, so switching it on takes effect without a relaunch. It is **not** reset
+  by per-session permissions (it isn't a `tccutil` service).
+- Skips clips marked `org.nspasteboard.ConcealedType` / `TransientType` / `AutoGeneratedType` and 1Password's
+  marker. Copying a clip back is not re-recorded. Images over 12 MB are skipped.
+- Kept in memory only, on purpose: clipboard history often contains secrets.
+
 ### Updates (Sparkle)
 - **Sparkle stays dormant** until `SPARKLE_FEED_URL` (https) and `SPARKLE_PUBLIC_ED_KEY` are set in
   `Config/NotchDeck.xcconfig`. Generate the EdDSA key with Sparkle's `generate_keys` tool (it stores the
@@ -498,6 +566,10 @@ exist only in `.env` and Cloudflare secrets.
   Shortcuts (7 global recorders), AI & Agents (Keychain API keys, model tier, system prompt, hook port),
   License & Updates (trial status, activate/deactivate, Sparkle, version).
 - **Licensing:** 7-day trial, activation gate in the notch, license proxy with master key, offline Ed25519 receipts.
+- **Live Activities** (Phase 6): battery / charging pills and card, Bluetooth device toasts with battery levels,
+  Downloads watcher with drag-out, AirDrop and add-to-tray.
+- **Quick utilities** (Phase 6): Pomodoro with countdown pill and chime, To-Dos (JSON), Clipboard history
+  (memory only, respects macOS paste privacy), Camera Mirror (AVCaptureSession, camera picker).
 - **Media** (Phase 3): Music + Spotify Now Playing, artwork with dynamic color extraction and ambient glow,
   scrub bar, transport controls, output device picker, bars/wave visualizer, collapsed live pill.
 - **File Tray** (Phase 3): drop zone (files, images, text, links), thumbnails + size badges, drag out,
@@ -518,7 +590,6 @@ exist only in `.env` and Cloudflare secrets.
 - Media fallback for browsers/system audio (`mediaremote-adapter`), real audio-level visualizer (optional).
 - Reminders (EventKit) alongside Calendar.
 - Multi-item drag-out from the tray.
-- Phase 6: battery/Bluetooth/Downloads Live Activities, Pomodoro, To-Dos, Clipboard history, Camera Mirror.
 - Release: Developer ID signing, notarization, DMG, production license keys, deployed proxy, Sparkle appcast.
 
 ---
@@ -538,6 +609,11 @@ NotchDeck/                     app sources (synchronized folder)
   Modules/MediaPlayer/         AppleScript bridge, Music/Spotify providers, NowPlayingStore, views
   Modules/FileTray/            FileTrayStore (bookmarks, staging, zip, AirDrop), views
   Modules/CalendarReminders/   CalendarStore (EventKit), MeetingLinkParser, views
+  Modules/AIChat/              chat clients (Claude, Gemini, OpenAI-compatible), ModelCatalog, views
+  Modules/AgentHooks/          loopback HTTP server, hook installer, approval card
+  Modules/SystemMonitor/       sampler (host stats, IOKit, IOReport), store, views (4 overview styles)
+  Modules/LiveActivities/      toast center, battery / Bluetooth / Downloads monitors, store, view
+  Modules/QuickUtilities/      Pomodoro, To-Dos, Clipboard, Camera Mirror (store + view each)
   UI/                          notch root view, components, Settings panes
 NotchDeckTests/                Swift Testing suites + fixtures
 Config/                        xcconfig, Info.plist template, entitlements
@@ -549,8 +625,14 @@ Scripts/                       license-keygen.swift
 
 ## 8. Next steps
 
-1. **Hands-on check of the System tab:** open it while doing real work (a build, a video export) and compare with
-   Activity Monitor; check the per-core bars move and the GPU numbers react to graphics work.
+1. **Phase 6 hands-on checks:**
+   - Live Activities: unplug / plug in the charger (pill + card), connect AirPods (pill with battery), download a
+     file in a browser (pill, then drag it out of the tab / AirDrop / add to tray).
+   - Pomodoro: set focus to 5 min, start, watch the countdown beside the notch, let it end (chime + pill).
+   - To-Dos: add, tick, edit, quit and reopen (items persist).
+   - Clipboard: set *Paste from Other Apps* → NotchDeck → Allow, copy a few things, click one, ⌘V.
+   - Mirror: allow the camera; close the notch and check the green light goes off.
+2. **System tab:** ✅ styles approved (all four kept). Still worth comparing with Activity Monitor under load.
 2. **Phase 5 (Claude Code approvals):**
    - Settings → AI & Agents → **Send Test Request**: a card appears; try Approve and Deny.
    - ✅ **Claude Code:** hook installed; real requests reach the notch; card keys confirmed working.
@@ -574,6 +656,15 @@ Scripts/                       license-keygen.swift
 ---
 
 ## 9. Log
+
+- **2026-11-26 — Phase 6 built.** Live Activities (IOPowerSources battery pills + card with watts / health,
+  IOBluetooth connection toasts with AirPods / HID battery levels, kqueue Downloads watcher with drag-out,
+  AirDrop, add-to-tray), Pomodoro (persisted state, countdown pill, chime, auto-start options), To-Dos (JSON),
+  Clipboard (memory-only, `accessBehavior`-aware, concealed types skipped), Camera Mirror (AVCaptureSession,
+  camera picker). New toast system for short pills; Pomodoro sits between urgent meetings and music. Camera
+  entitlement + usage strings; Bluetooth and Downloads added to per-session resets. Settings → Modules is now
+  scrollable with Live Activities / Pomodoro / Clipboard groups. 167 tests.
+- **2026-11-26 — System monitor committed.** User kept all four overview styles.
 
 - **2026-11-25 — Phase 1.** Xcode project (hand-written, objectVersion 77), notch window shell, both themes,
   geometry unit tests using real 14" MacBook Pro values (notch 185×32 pt at x 663.5–848.5).

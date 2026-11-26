@@ -6,6 +6,7 @@ struct ModulesSettingsPane: View {
     var body: some View {
         @Bindable var settings = settings
 
+        ScrollView {
         VStack(alignment: .leading, spacing: 10) {
             Text("Choose which modules appear in the notch, and drag to set their tab order.")
                 .foregroundStyle(.secondary)
@@ -19,6 +20,7 @@ struct ModulesSettingsPane: View {
                 }
             }
             .listStyle(.inset(alternatesRowBackgrounds: true))
+            .frame(height: 250)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(.separator)
@@ -34,8 +36,115 @@ struct ModulesSettingsPane: View {
 
             CalendarModuleSettings()
             SystemMonitorSettings()
+            LiveActivitiesSettings()
+            PomodoroSettings()
+            ClipboardSettings()
         }
         .padding(20)
+        }
+    }
+}
+
+/// Which Live Activities run.
+private struct LiveActivitiesSettings: View {
+    @Environment(SettingsStore.self) private var settings
+    @Environment(LiveActivitiesStore.self) private var live
+
+    var body: some View {
+        @Bindable var settings = settings
+        GroupBox {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 18) {
+                    Toggle("Battery", isOn: $settings.liveBatteryEnabled)
+                        .disabled(!live.hasBattery)
+                        .help(live.hasBattery ? "Charging, unplugged, and low-battery pills" : "This Mac has no battery")
+                    Toggle("Bluetooth devices", isOn: $settings.liveBluetoothEnabled)
+                    Toggle("Downloads", isOn: $settings.liveDownloadsEnabled)
+                }
+                Text("Pills appear beside the notch for a few seconds. Bluetooth and Downloads ask for permission the first time they run.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(6)
+        } label: {
+            Label("Live Activities", systemImage: "bolt.fill")
+        }
+    }
+}
+
+/// Pomodoro durations and behavior.
+private struct PomodoroSettings: View {
+    @Environment(SettingsStore.self) private var settings
+
+    var body: some View {
+        @Bindable var settings = settings
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 14) {
+                    Stepper("Focus \(settings.pomodoroFocusMinutes) min", value: $settings.pomodoroFocusMinutes,
+                            in: SettingsStore.pomodoroFocusRange, step: 5)
+                    Stepper("Break \(settings.pomodoroShortBreakMinutes) min", value: $settings.pomodoroShortBreakMinutes,
+                            in: SettingsStore.pomodoroShortBreakRange)
+                    Stepper("Long break \(settings.pomodoroLongBreakMinutes) min", value: $settings.pomodoroLongBreakMinutes,
+                            in: SettingsStore.pomodoroLongBreakRange, step: 5)
+                }
+                HStack(spacing: 14) {
+                    Stepper("Long break every \(settings.pomodoroSessionsBeforeLongBreak) sessions",
+                            value: $settings.pomodoroSessionsBeforeLongBreak, in: SettingsStore.pomodoroSessionsRange)
+                    Toggle("Chime", isOn: $settings.pomodoroSoundEnabled)
+                }
+                HStack(spacing: 14) {
+                    Toggle("Start breaks automatically", isOn: $settings.pomodoroAutoStartBreaks)
+                    Toggle("Start focus automatically", isOn: $settings.pomodoroAutoStartFocus)
+                }
+            }
+            .padding(6)
+        } label: {
+            Label("Pomodoro", systemImage: "timer")
+        }
+    }
+}
+
+/// Clipboard history size and content.
+private struct ClipboardSettings: View {
+    @Environment(SettingsStore.self) private var settings
+    @Environment(ClipboardStore.self) private var clipboard
+
+    var body: some View {
+        @Bindable var settings = settings
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 14) {
+                    Picker("Keep the last", selection: $settings.clipboardHistoryLimit) {
+                        ForEach(SettingsStore.clipboardLimits, id: \.self) { Text("\($0) clips").tag($0) }
+                    }
+                    .fixedSize()
+                    Toggle("Include images", isOn: $settings.clipboardCapturesImages)
+                    Spacer()
+                    Button("Clear History") { clipboard.clear() }
+                }
+                Text(accessSummary)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if clipboard.access != .allowed {
+                    Button("Open Privacy & Security…") { clipboard.openPrivacySettings() }
+                }
+            }
+            .padding(6)
+        } label: {
+            Label("Clipboard", systemImage: "doc.on.clipboard")
+        }
+    }
+
+    private var accessSummary: String {
+        let base = "Kept in memory only and cleared when NotchDeck quits. Password-manager copies are skipped."
+        return switch clipboard.access {
+        case .allowed: base
+        case .asks: base + " To record clips automatically, set NotchDeck to Allow under Privacy & Security → Paste from Other Apps."
+        case .denied: base + " NotchDeck is set to Deny under Privacy & Security → Paste from Other Apps."
+        }
     }
 }
 

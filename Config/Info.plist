@@ -19,6 +19,14 @@
 	<string>NotchDeck shows your next event in the notch with a one-click Join button for video calls.</string>
 	<key>NSCalendarsUsageDescription</key>
 	<string>NotchDeck shows your next event in the notch with a one-click Join button for video calls.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>NotchDeck’s Mirror shows your camera so you can check how you look before a call. Video never leaves your Mac.</string>
+	<key>NSCameraUseContinuityCameraDeviceType</key>
+	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>NotchDeck shows a pill in the notch when AirPods or other Bluetooth devices connect, with their battery level.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>NotchDeck shows new downloads in the notch so you can drag or AirDrop them right away.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- Lets Debug builds reach the local license dev server on 127.0.0.1. -->

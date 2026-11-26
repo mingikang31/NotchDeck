@@ -12,11 +12,17 @@ nonisolated enum LiveActivity: Equatable, Sendable {
     case agentApproval(count: Int)
     /// Brief pulse after a Claude Code task finishes.
     case agentFinished
+    /// A few seconds of charging / AirPods / download / Pomodoro news.
+    case toast(LiveToast)
+    /// The Pomodoro countdown, while running or paused.
+    case pomodoro
 
     var wingWidth: CGFloat {
         switch self {
         case .nowPlaying: 34
+        case .pomodoro: 78
         case .upcomingEvent, .agentApproval, .agentFinished: 92
+        case .toast: 104
         }
     }
 }
@@ -33,17 +39,24 @@ final class LiveActivityCoordinator {
     @ObservationIgnored private let settings: SettingsStore
     @ObservationIgnored private let license: LicenseManager
     @ObservationIgnored private let agentHooks: AgentHookStore
+    @ObservationIgnored private let toasts: NotchToastCenter
+    @ObservationIgnored private let pomodoro: PomodoroTimer
 
     /// Bumped every 30 s so time-based priorities re-evaluate.
     private var clock = Date()
     @ObservationIgnored private var tickTask: Task<Void, Never>?
 
-    init(media: NowPlayingStore, calendar: CalendarStore, settings: SettingsStore, license: LicenseManager, agentHooks: AgentHookStore) {
+    init(
+        media: NowPlayingStore, calendar: CalendarStore, settings: SettingsStore, license: LicenseManager,
+        agentHooks: AgentHookStore, toasts: NotchToastCenter, pomodoro: PomodoroTimer
+    ) {
         self.media = media
         self.calendar = calendar
         self.settings = settings
         self.license = license
         self.agentHooks = agentHooks
+        self.toasts = toasts
+        self.pomodoro = pomodoro
     }
 
     func start() {
@@ -62,23 +75,31 @@ final class LiveActivityCoordinator {
             if !agentHooks.pending.isEmpty { return .agentApproval(count: agentHooks.pending.count) }
             if agentHooks.lastFinished != nil { return .agentFinished }
         }
+        if let toast = toasts.current, enabled.contains(toast.module) { return .toast(toast) }
         let event = enabled.contains(.calendar) ? calendar.nextEvent(at: clock) : nil
         return Self.resolve(
             isMediaPlaying: enabled.contains(.media) && media.isPlaying,
-            event: event.map { ($0.id, $0.start.timeIntervalSince(clock), $0.isOngoing(at: clock)) }
+            event: event.map { ($0.id, $0.start.timeIntervalSince(clock), $0.isOngoing(at: clock)) },
+            isPomodoroActive: enabled.contains(.pomodoro) && pomodoro.isActive
         )
     }
 
     var wingWidth: CGFloat { current?.wingWidth ?? 0 }
 
-    /// Priority: an ongoing or imminent (≤15 min) event, then playing media, then an event within the hour.
-    static func resolve(isMediaPlaying: Bool, event: (id: String, startsIn: TimeInterval, isOngoing: Bool)?) -> LiveActivity? {
+    /// Priority: an ongoing or imminent (≤15 min) event, then a running Pomodoro, then playing media,
+    /// then an event within the hour. (Agent requests and toasts are checked before this.)
+    static func resolve(
+        isMediaPlaying: Bool,
+        event: (id: String, startsIn: TimeInterval, isOngoing: Bool)?,
+        isPomodoroActive: Bool = false
+    ) -> LiveActivity? {
         if let event, event.isOngoing || event.startsIn <= urgentEventWindow {
             // Keep an ongoing meeting up for its first 10 minutes only, then yield to music.
             if !event.isOngoing || event.startsIn > -10 * 60 || !isMediaPlaying {
                 return .upcomingEvent(id: event.id)
             }
         }
+        if isPomodoroActive { return .pomodoro }
         if isMediaPlaying { return .nowPlaying }
         if let event, event.startsIn <= eventWindow { return .upcomingEvent(id: event.id) }
         return nil
@@ -96,6 +117,7 @@ struct LiveActivityWings: View {
     @Environment(CalendarStore.self) private var calendar
     @Environment(SettingsStore.self) private var settings
     @Environment(AgentHookStore.self) private var agentHooks
+    @Environment(PomodoroTimer.self) private var pomodoro
 
     var body: some View {
         HStack(spacing: 0) {
@@ -142,6 +164,20 @@ struct LiveActivityWings: View {
             .foregroundStyle(.green)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, 10)
+        case .toast(let toast):
+            ToastWing(toast: toast, side: .leading)
+        case .pomodoro:
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                HStack(spacing: 4) {
+                    Image(systemName: pomodoro.state.isPaused ? "pause.fill" : "timer")
+                        .font(.system(size: 9, weight: .bold))
+                    Text(PomodoroLogic.clock(pomodoro.remaining(at: context.date)))
+                        .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                }
+                .foregroundStyle(pomodoro.state.isPaused ? Color.white.opacity(0.6) : PomodoroPalette.color(for: pomodoro.state.phase))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 10)
+            }
         }
     }
 
@@ -172,10 +208,70 @@ struct LiveActivityWings: View {
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.trailing, 10)
+        case .toast(let toast):
+            ToastWing(toast: toast, side: .trailing)
+        case .pomodoro:
+            Text(pomodoro.state.phase.isBreak ? "Break" : "Focus")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(pomodoro.state.isPaused ? Color.white.opacity(0.6) : Color.white)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.trailing, 10)
         }
     }
 
     private var colors: [Color] {
         media.palette.isEmpty ? settings.accentColor.gradient : media.palette
+    }
+}
+
+/// One half of a toast pill: icon + headline on the left, detail on the right.
+private struct ToastWing: View {
+    enum Side { case leading, trailing }
+
+    let toast: LiveToast
+    let side: Side
+
+    var body: some View {
+        Group {
+            if side == .leading {
+                HStack(spacing: 4) {
+                    Image(systemName: content.symbol).font(.system(size: 10, weight: .bold))
+                    Text(content.headline)
+                        .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                        .lineLimit(1)
+                }
+                .foregroundStyle(content.tint)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 10)
+            } else {
+                Text(content.detail)
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.trailing, 10)
+            }
+        }
+        .id(toast.id)
+        .transition(.opacity)
+    }
+
+    private var content: (symbol: String, headline: String, detail: String, tint: Color) {
+        switch toast.kind {
+        case .charging(let percent):
+            ("bolt.fill", "\(percent)%", "Charging", NotchStatusColor.good)
+        case .onBattery(let percent, let minutes):
+            ("battery.75percent", "\(percent)%", minutes.map { "\(BatteryStatus.duration($0)) left" } ?? "On battery", .white)
+        case .lowBattery(let percent):
+            ("battery.25percent", "\(percent)%", "Low battery", percent <= 10 ? NotchStatusColor.critical : NotchStatusColor.warning)
+        case .charged:
+            ("battery.100percent.bolt", "100%", "Charged", NotchStatusColor.good)
+        case .deviceConnected(let name, let symbol, let battery):
+            (symbol, battery.map { "\($0)%" } ?? "On", name, .white)
+        case .download(let name):
+            ("arrow.down.circle.fill", "Saved", name, Color(red: 0.25, green: 0.62, blue: 1.0))
+        case .pomodoro(let title, let detail, let isBreak):
+            (isBreak ? "cup.and.saucer.fill" : "timer", title, detail, isBreak ? PomodoroPalette.rest : PomodoroPalette.focus)
+        }
     }
 }

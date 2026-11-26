@@ -13,8 +13,10 @@ nonisolated enum SessionPermissions {
         case appleEvents = "AppleEvents"   // control Music / Spotify
         case calendar = "Calendar"         // EventKit events
         case reminders = "Reminders"       // EventKit reminders (later)
-        case camera = "Camera"             // Camera Mirror (Phase 6)
+        case camera = "Camera"             // Camera Mirror
         case screenCapture = "ScreenCapture" // AI Chat screen-selection capture
+        case bluetooth = "BluetoothAlways" // Live Activities: AirPods / device connections
+        case downloads = "SystemPolicyDownloadsFolder" // Live Activities: new downloads
     }
 
     private static let logger = Logger(subsystem: "com.notchdeck.NotchDeck", category: "Permissions")

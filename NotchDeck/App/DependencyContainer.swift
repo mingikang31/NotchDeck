@@ -35,6 +35,12 @@ struct AppServices {
     let modelCatalog: ModelCatalog
     let agentHooks: AgentHookStore
     let systemMonitor: SystemMonitorStore
+    let toasts: NotchToastCenter
+    let liveActivities: LiveActivitiesStore
+    let pomodoro: PomodoroTimer
+    let todos: TodoStore
+    let clipboard: ClipboardStore
+    let mirror: CameraMirrorStore
 }
 
 extension View {
@@ -53,6 +59,12 @@ extension View {
             .environment(services.modelCatalog)
             .environment(services.agentHooks)
             .environment(services.systemMonitor)
+            .environment(services.toasts)
+            .environment(services.liveActivities)
+            .environment(services.pomodoro)
+            .environment(services.todos)
+            .environment(services.clipboard)
+            .environment(services.mirror)
             .environment(\.settingsOpener, services.settingsOpener)
     }
 }
@@ -81,6 +93,8 @@ final class DependencyContainer {
         let apiKeys = APIKeyStore(store: store)
         let catalog = ModelCatalog(settings: settings, apiKeys: apiKeys)
         let agentHooks = AgentHookStore(settings: settings)
+        let toasts = NotchToastCenter()
+        let pomodoro = PomodoroTimer(settings: settings, toasts: toasts, defaults: defaults)
         services = AppServices(
             settings: settings,
             themeEngine: ThemeEngine(settings: settings),
@@ -92,11 +106,20 @@ final class DependencyContainer {
             nowPlaying: nowPlaying,
             fileTray: FileTrayStore(),
             calendar: calendar,
-            liveActivity: LiveActivityCoordinator(media: nowPlaying, calendar: calendar, settings: settings, license: license, agentHooks: agentHooks),
+            liveActivity: LiveActivityCoordinator(
+                media: nowPlaying, calendar: calendar, settings: settings, license: license,
+                agentHooks: agentHooks, toasts: toasts, pomodoro: pomodoro
+            ),
             chat: ChatStore(settings: settings, apiKeys: apiKeys, catalog: catalog),
             modelCatalog: catalog,
             agentHooks: agentHooks,
-            systemMonitor: SystemMonitorStore(settings: settings)
+            systemMonitor: SystemMonitorStore(settings: settings),
+            toasts: toasts,
+            liveActivities: LiveActivitiesStore(toasts: toasts),
+            pomodoro: pomodoro,
+            todos: TodoStore(),
+            clipboard: ClipboardStore(settings: settings),
+            mirror: CameraMirrorStore()
         )
         windowController = NotchWindowController(services: services)
     }
@@ -122,6 +145,7 @@ final class DependencyContainer {
         windowController.start()
         services.updateManager.start()
         services.liveActivity.start()
+        services.pomodoro.resume()
 
         // Modules run only while enabled in Settings → Modules and unlocked by the license.
         observeContinuously({ [weak self] in
@@ -131,6 +155,14 @@ final class DependencyContainer {
             self?.applyModuleActivation(active)
         }
         applyModuleActivation(services.licenseManager.isUnlocked ? settings.enabledModules : [])
+
+        // Live Activities: each watcher runs only while the module and its own toggle are on.
+        observeContinuously({ [weak self] in
+            self?.liveActivation ?? .off
+        }) { [weak self] activation in
+            self?.services.liveActivities.apply(activation)
+        }
+        services.liveActivities.apply(liveActivation)
 
         // Calendar was reset above; if the user had connected it before, ask again right away
         // rather than leaving the module disconnected until they find the button.
@@ -161,6 +193,23 @@ final class DependencyContainer {
         services.nowPlaying.setActive(active.contains(.media))
         services.agentHooks.setActive(active.contains(.agentHooks))
         services.calendar.setActive(active.contains(.calendar))
+        services.clipboard.setActive(active.contains(.clipboard))
+        if !active.contains(.pomodoro), services.pomodoro.state.isRunning {
+            services.pomodoro.pause()
+        }
+    }
+
+    private var liveActivation: LiveActivitiesStore.Activation {
+        guard services.licenseManager.isUnlocked, settings.enabledModules.contains(.liveActivities) else { return .off }
+        return .init(
+            battery: settings.liveBatteryEnabled,
+            bluetooth: settings.liveBluetoothEnabled,
+            downloads: settings.liveDownloadsEnabled
+        )
+    }
+
+    private func isUsable(_ module: NotchModule) -> Bool {
+        services.licenseManager.isUnlocked && settings.enabledModules.contains(module)
     }
 
     private func perform(_ action: ShortcutAction) {
@@ -175,8 +224,12 @@ final class DependencyContainer {
             windowController.toggleChat()
         case .approveAgentRequest:
             services.agentHooks.approve()
-        case .togglePomodoro, .toggleCameraMirror:
-            break // Wired when the corresponding module ships.
+        case .togglePomodoro:
+            guard isUsable(.pomodoro) else { return }
+            services.pomodoro.toggle()
+        case .toggleCameraMirror:
+            guard isUsable(.mirror) else { return }
+            windowController.toggleModule(.mirror)
         }
     }
 

@@ -122,6 +122,15 @@ final class NotchWindowController {
         }
     }
 
+    /// Shortcut behavior for a module tab: open it, or close it if it's already showing.
+    func toggleModule(_ module: NotchModule) {
+        if let open = controllers.values.first(where: \.isExpanded) {
+            open.toggleModule(module)
+        } else {
+            activeController()?.toggleModule(module)
+        }
+    }
+
     /// A Claude Code approval arrived: open the notch on the card (screen under the pointer).
     func showAgentApproval() {
         if let open = controllers.values.first(where: \.isExpanded) {

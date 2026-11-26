@@ -32,6 +32,18 @@ final class SettingsStore {
         static let systemOverviewStyle = "notchdeck.systemMonitor.overviewStyle"
         static let agentHookToken = "notchdeck.agentHookToken"
         static let agentChimeEnabled = "notchdeck.agentChimeEnabled"
+        static let liveBattery = "notchdeck.live.battery"
+        static let liveBluetooth = "notchdeck.live.bluetooth"
+        static let liveDownloads = "notchdeck.live.downloads"
+        static let pomodoroFocus = "notchdeck.pomodoro.focusMinutes"
+        static let pomodoroShortBreak = "notchdeck.pomodoro.shortBreakMinutes"
+        static let pomodoroLongBreak = "notchdeck.pomodoro.longBreakMinutes"
+        static let pomodoroSessions = "notchdeck.pomodoro.sessionsBeforeLongBreak"
+        static let pomodoroAutoStartBreaks = "notchdeck.pomodoro.autoStartBreaks"
+        static let pomodoroAutoStartFocus = "notchdeck.pomodoro.autoStartFocus"
+        static let pomodoroSound = "notchdeck.pomodoro.sound"
+        static let clipboardLimit = "notchdeck.clipboard.limit"
+        static let clipboardImages = "notchdeck.clipboard.capturesImages"
         static let geometryOutline = "notchdeck.debug.showsGeometryOutline"
         static let startExpanded = "notchdeck.debug.startExpanded"
         static let startModule = "notchdeck.debug.startModule"
@@ -140,6 +152,67 @@ final class SettingsStore {
         }
     }
 
+    // MARK: Live Activities
+
+    /// Charging / unplugged / low-battery pills.
+    var liveBatteryEnabled: Bool { didSet { defaults.set(liveBatteryEnabled, forKey: Key.liveBattery) } }
+    /// AirPods / headphone / keyboard connection toasts.
+    var liveBluetoothEnabled: Bool { didSet { defaults.set(liveBluetoothEnabled, forKey: Key.liveBluetooth) } }
+    /// New files in ~/Downloads.
+    var liveDownloadsEnabled: Bool { didSet { defaults.set(liveDownloadsEnabled, forKey: Key.liveDownloads) } }
+
+    // MARK: Pomodoro
+
+    static let pomodoroFocusRange = 5...90
+    static let pomodoroShortBreakRange = 1...30
+    static let pomodoroLongBreakRange = 5...60
+    static let pomodoroSessionsRange = 2...8
+
+    var pomodoroFocusMinutes: Int {
+        didSet {
+            let clamped = Self.clamp(pomodoroFocusMinutes, to: Self.pomodoroFocusRange)
+            if clamped != pomodoroFocusMinutes { pomodoroFocusMinutes = clamped }
+            defaults.set(clamped, forKey: Key.pomodoroFocus)
+        }
+    }
+    var pomodoroShortBreakMinutes: Int {
+        didSet {
+            let clamped = Self.clamp(pomodoroShortBreakMinutes, to: Self.pomodoroShortBreakRange)
+            if clamped != pomodoroShortBreakMinutes { pomodoroShortBreakMinutes = clamped }
+            defaults.set(clamped, forKey: Key.pomodoroShortBreak)
+        }
+    }
+    var pomodoroLongBreakMinutes: Int {
+        didSet {
+            let clamped = Self.clamp(pomodoroLongBreakMinutes, to: Self.pomodoroLongBreakRange)
+            if clamped != pomodoroLongBreakMinutes { pomodoroLongBreakMinutes = clamped }
+            defaults.set(clamped, forKey: Key.pomodoroLongBreak)
+        }
+    }
+    /// Focus sessions before a long break.
+    var pomodoroSessionsBeforeLongBreak: Int {
+        didSet {
+            let clamped = Self.clamp(pomodoroSessionsBeforeLongBreak, to: Self.pomodoroSessionsRange)
+            if clamped != pomodoroSessionsBeforeLongBreak { pomodoroSessionsBeforeLongBreak = clamped }
+            defaults.set(clamped, forKey: Key.pomodoroSessions)
+        }
+    }
+    var pomodoroAutoStartBreaks: Bool { didSet { defaults.set(pomodoroAutoStartBreaks, forKey: Key.pomodoroAutoStartBreaks) } }
+    var pomodoroAutoStartFocus: Bool { didSet { defaults.set(pomodoroAutoStartFocus, forKey: Key.pomodoroAutoStartFocus) } }
+    var pomodoroSoundEnabled: Bool { didSet { defaults.set(pomodoroSoundEnabled, forKey: Key.pomodoroSound) } }
+
+    // MARK: Clipboard
+
+    static let clipboardLimits = [10, 25, 50]
+    var clipboardHistoryLimit: Int {
+        didSet {
+            let snapped = Self.clipboardLimits.min { abs($0 - clipboardHistoryLimit) < abs($1 - clipboardHistoryLimit) } ?? 25
+            if snapped != clipboardHistoryLimit { clipboardHistoryLimit = snapped }
+            defaults.set(snapped, forKey: Key.clipboardLimit)
+        }
+    }
+    var clipboardCapturesImages: Bool { didSet { defaults.set(clipboardCapturesImages, forKey: Key.clipboardImages) } }
+
     // MARK: Debug
 
     /// Outlines the computed cutout to verify hardware alignment.
@@ -190,6 +263,20 @@ final class SettingsStore {
         agentHookToken = defaults.string(forKey: Key.agentHookToken) ?? ""
         agentChimeEnabled = defaults.object(forKey: Key.agentChimeEnabled) as? Bool ?? true
         agentServerPort = Self.clamp(defaults.object(forKey: Key.agentServerPort) as? Int ?? Self.defaultAgentPort, to: Self.agentPortRange)
+
+        liveBatteryEnabled = defaults.object(forKey: Key.liveBattery) as? Bool ?? true
+        liveBluetoothEnabled = defaults.object(forKey: Key.liveBluetooth) as? Bool ?? true
+        liveDownloadsEnabled = defaults.object(forKey: Key.liveDownloads) as? Bool ?? true
+        pomodoroFocusMinutes = Self.clamp(defaults.object(forKey: Key.pomodoroFocus) as? Int ?? 25, to: Self.pomodoroFocusRange)
+        pomodoroShortBreakMinutes = Self.clamp(defaults.object(forKey: Key.pomodoroShortBreak) as? Int ?? 5, to: Self.pomodoroShortBreakRange)
+        pomodoroLongBreakMinutes = Self.clamp(defaults.object(forKey: Key.pomodoroLongBreak) as? Int ?? 15, to: Self.pomodoroLongBreakRange)
+        pomodoroSessionsBeforeLongBreak = Self.clamp(defaults.object(forKey: Key.pomodoroSessions) as? Int ?? 4, to: Self.pomodoroSessionsRange)
+        pomodoroAutoStartBreaks = defaults.object(forKey: Key.pomodoroAutoStartBreaks) as? Bool ?? true
+        pomodoroAutoStartFocus = defaults.object(forKey: Key.pomodoroAutoStartFocus) as? Bool ?? false
+        pomodoroSoundEnabled = defaults.object(forKey: Key.pomodoroSound) as? Bool ?? true
+        let storedLimit = defaults.object(forKey: Key.clipboardLimit) as? Int ?? 25
+        clipboardHistoryLimit = Self.clipboardLimits.contains(storedLimit) ? storedLimit : 25
+        clipboardCapturesImages = defaults.object(forKey: Key.clipboardImages) as? Bool ?? true
 
         showsGeometryOutline = defaults.bool(forKey: Key.geometryOutline)
         startExpanded = defaults.bool(forKey: Key.startExpanded)

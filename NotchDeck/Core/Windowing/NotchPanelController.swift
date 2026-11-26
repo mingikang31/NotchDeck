@@ -179,12 +179,24 @@ final class NotchPanelController {
         isPinnedOpen = true
     }
 
-    /// Hover or click on the collapsed notch: a waiting Claude Code request takes the stage.
+    /// Hover or click on the collapsed notch: a waiting Claude Code request takes the stage, and a
+    /// showing toast (new download, AirPods, Pomodoro) opens its tab.
     private func expandFromPill() {
         if !agentHooks.pending.isEmpty, settings.enabledModules.contains(.agentHooks) {
             model.selectedModule = .agentHooks
+        } else if case .toast(let toast) = liveActivity.current {
+            model.selectedModule = toast.module
         }
         transition(to: .expanded)
+    }
+
+    /// A module shortcut (Camera Mirror): open on that tab, or close if it's already showing.
+    func toggleModule(_ module: NotchModule) {
+        if model.state == .expanded, activeModule == module {
+            transition(to: .collapsed)
+        } else {
+            expandPinned(showing: module)
+        }
     }
 
     /// Escape: deny a showing Claude Code request; otherwise close the notch.
