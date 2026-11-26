@@ -5,6 +5,7 @@ struct AIAgentsSettingsPane: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(APIKeyStore.self) private var apiKeys
     @Environment(ModelCatalog.self) private var catalog
+    @Environment(AgentHookStore.self) private var agentHooks
 
     var body: some View {
         @Bindable var settings = settings
@@ -64,25 +65,13 @@ struct AIAgentsSettingsPane: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section {
-                LabeledContent("Local hook server") {
-                    Label("Not running", systemImage: "circle.fill")
-                        .labelStyle(StatusDotLabelStyle(color: .secondary))
-                }
-                TextField("Port", value: $settings.agentServerPort, format: .number.grouping(.never))
-                    .help("127.0.0.1 port the hook server listens on (\(SettingsStore.agentPortRange.lowerBound)–\(SettingsStore.agentPortRange.upperBound)).")
-                Button("Install Claude Code Hook…") {}
-                    .disabled(true)
-            } header: {
-                Text("Claude Code Agent Hooks")
-            } footer: {
-                Text("The approval server and the one-click hook installer arrive in Phase 5.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
+            ClaudeCodeHooksSection()
         }
         .formStyle(.grouped)
-        .onAppear { apiKeys.refresh() }
+        .onAppear {
+            apiKeys.refresh()
+            agentHooks.refreshHookStatus()
+        }
     }
 }
 
@@ -215,5 +204,143 @@ private struct ModelListsSection: View {
     private func add() {
         catalog.addModel(id: newModelID, provider: newModelProvider)
         newModelID = ""
+    }
+}
+
+/// Coding-agent integration: hook server, per-agent hook install (Claude Code, Codex), chime, test.
+private struct ClaudeCodeHooksSection: View {
+    @Environment(SettingsStore.self) private var settings
+    @Environment(AgentHookStore.self) private var hooks
+    @State private var portDraft = ""
+
+    var body: some View {
+        @Bindable var settings = settings
+
+        Section {
+            LabeledContent("Local hook server") {
+                Label(serverText, systemImage: "circle.fill")
+                    .labelStyle(StatusDotLabelStyle(color: serverColor))
+            }
+            HStack {
+                TextField("Port", text: $portDraft, prompt: Text("\(SettingsStore.defaultAgentPort)"))
+                    .onSubmit(applyPort)
+                    .frame(maxWidth: 160)
+                Button("Apply", action: applyPort)
+                    .disabled(Int(portDraft) == settings.agentServerPort || Int(portDraft) == nil)
+                Spacer()
+                Text("Listens on 127.0.0.1 only")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            ForEach(HookAgent.allCases) { agent in
+                AgentHookRow(agent: agent, isServerRunning: isServerRunning)
+            }
+
+            Toggle("Chime when an agent finishes a task", isOn: $settings.agentChimeEnabled)
+        } header: {
+            Text("Coding Agent Hooks (Claude Code & Codex)")
+        } footer: {
+            Text("""
+            Installing adds two hooks (permission requests and task-finished) to the agent's config, saving a backup next to it (…notchdeck-backup); nothing else in the file changes. \
+            Claude Code: ~/.claude/settings.json (HTTP hooks). Codex: ~/.codex/hooks.json (a curl command per hook). Codex then asks you to trust new hooks once: run /hooks in Codex and trust both NotchDeck hooks. \
+            If NotchDeck isn't running, or you don't answer within 2 minutes, the agent just asks in the terminal as usual. Nothing is ever approved automatically. Takes effect in new sessions.
+            """)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        }
+        .onAppear { portDraft = String(settings.agentServerPort) }
+    }
+
+    private func applyPort() {
+        guard let port = Int(portDraft) else { return }
+        settings.agentServerPort = port
+        portDraft = String(settings.agentServerPort) // shows the clamped value
+    }
+
+    private var isServerRunning: Bool {
+        if case .running = hooks.serverState { return true }
+        return false
+    }
+
+    private var serverText: String {
+        switch hooks.serverState {
+        case .running(let port): "Running on 127.0.0.1:\(port)"
+        case .stopped: settings.enabledModules.contains(.agentHooks) ? "Stopped" : "Off (Agent Hooks module disabled)"
+        case .failed(let reason): reason
+        }
+    }
+
+    private var serverColor: Color {
+        switch hooks.serverState {
+        case .running: .green
+        case .stopped: .secondary
+        case .failed: .red
+        }
+    }
+}
+
+private struct AgentHookRow: View {
+    let agent: HookAgent
+    let isServerRunning: Bool
+
+    @Environment(AgentHookStore.self) private var hooks
+
+    var body: some View {
+        let status = hooks.status(for: agent)
+        VStack(alignment: .leading, spacing: 6) {
+            LabeledContent(agent.displayName) {
+                Label(statusText(status), systemImage: "circle.fill")
+                    .labelStyle(StatusDotLabelStyle(color: statusColor(status)))
+            }
+            HStack {
+                switch status {
+                case .installed:
+                    Button("Remove Hook", role: .destructive) { hooks.uninstallHook(agent) }
+                case .needsUpdate:
+                    Button("Update Hook") { hooks.installHook(agent) }.buttonStyle(.borderedProminent)
+                    Button("Remove Hook", role: .destructive) { hooks.uninstallHook(agent) }
+                case .notInstalled, .unreadable:
+                    Button("Install \(agent.displayName) Hook") { hooks.installHook(agent) }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!agent.isPresentOnThisMac)
+                }
+                Spacer()
+                Button("Send Test Request") { hooks.sendTestRequest(as: agent) }
+                    .disabled(!isServerRunning)
+                    .help("Shows a sample \(agent.displayName) approval card through the real server (nothing runs)")
+            }
+            if !agent.isPresentOnThisMac, status == .notInstalled {
+                Text("\(agent.displayName) doesn't seem to be installed (\(agent.defaultConfigURL.deletingLastPathComponent().path.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")) not found).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if agent == .codex, status == .installed {
+                Text("Codex only runs new hooks after you trust them: in Codex, run /hooks and trust both NotchDeck hooks (again after any update).")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+            if let error = hooks.hookError[agent] {
+                Text(error).font(.callout).foregroundStyle(.red)
+            }
+        }
+    }
+
+    private func statusText(_ status: AgentHookInstaller.Status) -> String {
+        switch status {
+        case .installed: "Installed"
+        case .needsUpdate: "Needs update (port or token changed)"
+        case .notInstalled: "Not installed"
+        case .unreadable(let reason): reason
+        }
+    }
+
+    private func statusColor(_ status: AgentHookInstaller.Status) -> Color {
+        switch status {
+        case .installed: .green
+        case .needsUpdate: .orange
+        case .notInstalled: .secondary
+        case .unreadable: .red
+        }
     }
 }

@@ -33,6 +33,7 @@ struct AppServices {
     let liveActivity: LiveActivityCoordinator
     let chat: ChatStore
     let modelCatalog: ModelCatalog
+    let agentHooks: AgentHookStore
 }
 
 extension View {
@@ -49,6 +50,7 @@ extension View {
             .environment(services.liveActivity)
             .environment(services.chat)
             .environment(services.modelCatalog)
+            .environment(services.agentHooks)
             .environment(\.settingsOpener, services.settingsOpener)
     }
 }
@@ -76,6 +78,7 @@ final class DependencyContainer {
         let calendar = CalendarStore(settings: settings)
         let apiKeys = APIKeyStore(store: store)
         let catalog = ModelCatalog(settings: settings, apiKeys: apiKeys)
+        let agentHooks = AgentHookStore(settings: settings)
         services = AppServices(
             settings: settings,
             themeEngine: ThemeEngine(settings: settings),
@@ -87,9 +90,10 @@ final class DependencyContainer {
             nowPlaying: nowPlaying,
             fileTray: FileTrayStore(),
             calendar: calendar,
-            liveActivity: LiveActivityCoordinator(media: nowPlaying, calendar: calendar, settings: settings, license: license),
+            liveActivity: LiveActivityCoordinator(media: nowPlaying, calendar: calendar, settings: settings, license: license, agentHooks: agentHooks),
             chat: ChatStore(settings: settings, apiKeys: apiKeys, catalog: catalog),
-            modelCatalog: catalog
+            modelCatalog: catalog,
+            agentHooks: agentHooks
         )
         windowController = NotchWindowController(services: services)
     }
@@ -106,6 +110,8 @@ final class DependencyContainer {
         services.settingsOpener.handler = { [weak self] pane in self?.openSettings(pane) }
         services.chat.onShowChat = { [weak self] in self?.windowController.focusChat() }
         services.chat.onHideNotch = { [weak self] in self?.windowController.collapseAll() }
+        services.agentHooks.onApprovalNeeded = { [weak self] in self?.windowController.showAgentApproval() }
+        services.agentHooks.onQueueEmptied = { [weak self] in self?.windowController.collapse(ifShowing: .agentHooks) }
         services.licenseManager.start()
         services.apiKeys.refresh()
         // Fresh model lists for every configured provider (cached lists show meanwhile).
@@ -150,6 +156,7 @@ final class DependencyContainer {
 
     private func applyModuleActivation(_ active: [NotchModule]) {
         services.nowPlaying.setActive(active.contains(.media))
+        services.agentHooks.setActive(active.contains(.agentHooks))
         services.calendar.setActive(active.contains(.calendar))
     }
 
@@ -163,7 +170,9 @@ final class DependencyContainer {
             services.nowPlaying.perform(.playPause)
         case .openAIChat:
             windowController.toggleChat()
-        case .togglePomodoro, .toggleCameraMirror, .approveAgentRequest:
+        case .approveAgentRequest:
+            services.agentHooks.approve()
+        case .togglePomodoro, .toggleCameraMirror:
             break // Wired when the corresponding module ships.
         }
     }

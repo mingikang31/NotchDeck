@@ -296,10 +296,10 @@ struct ModuleSelectionTests {
 
     @Test func shippedModulesAreAvailable() {
         #expect(NotchModule.media.isAvailable && NotchModule.fileTray.isAvailable && NotchModule.calendar.isAvailable)
-        #expect(NotchModule.aiChat.isAvailable)
-        #expect(!NotchModule.agentHooks.isAvailable)
+        #expect(NotchModule.aiChat.isAvailable && NotchModule.agentHooks.isAvailable)
+        #expect(!NotchModule.pomodoro.isAvailable)
         #expect(ShortcutAction.togglePlayPause.pendingModule == nil)
-        #expect(ShortcutAction.openAIChat.pendingModule == nil)
-        #expect(ShortcutAction.approveAgentRequest.pendingModule == .agentHooks)
+        #expect(ShortcutAction.approveAgentRequest.pendingModule == nil)
+        #expect(ShortcutAction.togglePomodoro.pendingModule == .pomodoro)
     }
 }

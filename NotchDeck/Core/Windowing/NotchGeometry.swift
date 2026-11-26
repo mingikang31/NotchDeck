@@ -56,6 +56,15 @@ nonisolated enum NotchSizePreset: String, CaseIterable, Identifiable, Sendable {
 /// Which expanded size to use: standard modules, or the taller conversation layout.
 nonisolated enum ExpandedLayout: Equatable, Sendable {
     case standard, tall
+
+    /// AI Chat, and Agent Hooks while an approval card is showing, need the extra height.
+    static func forModule(_ module: NotchModule?, hasPendingApproval: Bool) -> ExpandedLayout {
+        switch module {
+        case .aiChat: .tall
+        case .agentHooks: hasPendingApproval ? .tall : .standard
+        default: .standard
+        }
+    }
 }
 
 /// Size and curvature of the notch silhouette for a given state.

@@ -4,7 +4,7 @@ The running notebook for this project: what exists, how to work it, what to watc
 what's next. Kept up to date as each phase lands. The full product spec is
 [`notchdeck_technical_specification.txt`](notchdeck_technical_specification.txt).
 
-_Last updated: 2026-11-25, Phase 4 committed, Phase 5 in progress._
+_Last updated: 2026-11-26, Phase 5 committed; System Monitor + Phase 6 in progress._
 
 ---
 
@@ -16,8 +16,9 @@ _Last updated: 2026-11-25, Phase 4 committed, Phase 5 in progress._
 | 2 | SettingsStore, 6-tab Settings, global shortcuts, 7-day trial + license activation, Sparkle wiring | ✅ Done |
 | 3 | Now Playing + visualizer, File Tray (drag in/out, AirDrop, zip), Calendar banner + meeting links | ✅ Done (confirmed) |
 | 4 | Embedded AI Chat (Claude + Gemini streaming, Markdown, attachments, focus shortcut) | ✅ Done (Claude chat confirmed) |
-| 5 | Claude Code agent hooks (127.0.0.1 server, hook installer, Approve/Deny card) | 🚧 In progress |
-| 6 | Live Activities (battery, Bluetooth, Downloads), Pomodoro, To-Dos, Clipboard, Camera Mirror | ⏳ Planned |
+| 5 | Claude Code & Codex agent hooks (127.0.0.1 server, hook installer, Approve/Deny card) | ✅ Done (Claude Code confirmed; Codex believed working) |
+| 6 | Live Activities (battery, Bluetooth, Downloads), Pomodoro, To-Dos, Clipboard, Camera Mirror | 🚧 In progress |
+| + | System Monitor tab (CPU / GPU / memory, asitop/macmon-style), requested 2026-11-26 | 🚧 In progress |
 
 ---
 
@@ -81,6 +82,22 @@ Or open `NotchDeck.xcodeproj` in Xcode and press ⌘R / ⌘U. New `.swift` files
     attaches them.
   - Replies stream with Markdown, syntax-highlighted code (**Copy Code**), **Copy Response** on hover, a
     collapsible "Thought process" summary, **Retry** on errors, **History** (🕘) and **New Chat** (✎).
+- **Claude Code & Codex approvals (Agent Hooks):** Settings → AI & Agents → **Install Claude Code Hook**
+  and/or **Install Codex Hook** (once each). **Codex extra step:** open Codex, run `/hooks`, and trust both
+  NotchDeck hooks (Codex skips new or changed hooks until you do; repeat after an *Update Hook*).
+  From then on, in **new** sessions, whenever the agent would ask permission (run a command,
+  edit or write a file, use an MCP tool…), the notch opens with an approval card showing the exact command,
+  a red/green diff, or the file content:
+  - **Approve** (⌘↩), **Deny** (Esc), or **Always Allow** (⌘⇧↩, when Claude Code offers a "don't ask again"
+    rule). The keys work as soon as the card appears, with no click needed.
+  - Several requests queue up ("+2 waiting"). If you close the notch, the collapsed pill says **Approve?**;
+    hover or click it to get the card back.
+  - Not answered within **2 minutes** → handed back; Claude Code asks in the terminal as usual.
+  - Answering in the terminal instead also works; the card disappears.
+  - When Claude Code finishes a task: a **chime** and a green **Done · project** pulse beside the notch
+    (chime can be turned off).
+  - **Send Test Request** (per agent, same Settings section) shows a sample card through the real server; nothing runs.
+  - Shortcut **Approve Pending Agent Request** (Settings → Shortcuts) approves without touching the mouse.
 - **Calendar:** open the Calendar tab and click *Connect Calendar* (macOS asks for access). Shows upcoming
   events grouped by day (Today / Tomorrow / …). With more than three, **scroll** (trackpad/wheel) through them;
   a fade at the bottom and "scroll for more" in the header show there's more. Green **Join** button for Zoom, Google Meet,
@@ -340,6 +357,53 @@ which gives the app a **stable identity across every version and update**.
   capped at 70% of screen height). The window grows immediately and shrinks after the close animation, so no
   invisible strip blocks clicks.
 
+### Agent Hooks (Claude Code & Codex)
+- **Claude Code:** its `http` hook type. The installer adds two entries to `~/.claude/settings.json`:
+  a `PermissionRequest` hook (matcher `*`) POSTing to `http://127.0.0.1:47823/notchdeck/permission-request`,
+  and a `Stop` hook POSTing to `…/notchdeck/stop`. No script is installed.
+- **Codex:** Codex's hooks (same event names and decision schema as Claude Code: `PermissionRequest` with
+  `hookSpecificOutput.decision.behavior`, and `Stop`) support only `command` handlers, not HTTP. So the
+  installer writes `~/.codex/hooks.json` with one command per hook:
+  `/usr/bin/curl -sf --max-time 590 -H 'Expect:' -H 'Content-Type: application/json' -H 'X-NotchDeck-Token: …'
+  --data-binary @- http://127.0.0.1:47823/notchdeck/codex/permission-request || true`.
+  Codex pipes the hook JSON to curl's stdin; NotchDeck's decision comes back on stdout. If NotchDeck is away,
+  curl prints nothing and `|| true` exits 0, so Codex shows its normal prompt (a test runs this exact command).
+  - **Trust:** Codex only runs non-managed hooks you've reviewed (`/hooks` in Codex, trust is per hook
+    hash), so after installing or updating, trust both NotchDeck hooks once.
+  - Codex needs a version with hooks (they're on by default; `[features] hooks = false` turns them off).
+    NotchDeck only edits `hooks.json`, never `config.toml`.
+  - Codex sends no "don't ask again" suggestions, so its cards have no **Always Allow**.
+  - Codex runs `Bash` (commands may arrive as an argv array, which the card joins) and `apply_patch` (shown as a
+    per-file +/− diff).
+- **Both:** everything else in the files is preserved; a backup (`….notchdeck-backup`) is written first; a file
+  that isn't valid JSON is never touched. **Remove Hook** takes exactly NotchDeck's entries out again
+  (recognized by `/notchdeck/` in the URL or command).
+- **Fail-safe, never fail-open:** NotchDeck doesn't set `onFailure: "block"`, and it never approves anything
+  on its own. If NotchDeck is quit, the module is off, the request times out, or you don't answer within
+  2 minutes, Claude Code just shows its normal terminal prompt. A denial or approval only ever comes from
+  you clicking a button (or the approve shortcut).
+- **Security:** the server binds to **127.0.0.1 only** (verified: unreachable from the Mac's LAN address) and
+  requires a per-install token header (`X-NotchDeck-Token`, stored in NotchDeck's preferences and in the
+  hook entry). Requests without it get 403. The token keeps other local software from injecting fake
+  approval cards; it isn't a credential for anything else.
+- **Port 47823, not 49152:** the spec's example port is the first port of macOS's ephemeral range, and on
+  this Mac Cisco AnyConnect's `vpnagentd` already listens on 127.0.0.1:49152 (`lsof` can't see it without
+  admin rights; `netstat -anv` can). Changing the port in Settings restarts the server and marks the hook
+  **Needs update**; click it to rewrite the URL.
+- **Takes effect in new sessions** (the agents read hooks at session start). It applies to **every** session of
+  that agent on this Mac, including Claude Code inside VS Code.
+- **Approval card keyboard:** when a card appears, the notch **takes keyboard focus** (without switching apps:
+  your terminal or editor stays the frontmost app) so Esc / ⌘↩ / ⌘⇧↩ work immediately. Keystrokes typed
+  meanwhile go to the card, not your terminal; focus returns where it was once the last request is answered.
+  Plain Return does nothing, so a stray Return can't approve. The keys are handled by NotchDeck directly
+  (a key monitor), because SwiftUI shortcuts and Escape didn't reliably reach the non-activating panel: the
+  first build's keys didn't work at all (reported 2026-11-26). The global *Approve Pending Agent Request*
+  shortcut works any time.
+- **"Always Allow"** sends back Claude Code's own suggestion (`permission_suggestions` → `updatedPermissions`),
+  so the rule lands where Claude Code proposed (usually the project's local settings).
+- **Diff preview** shows the changed lines between `old_string` and `new_string` with 2 lines of context;
+  it's a preview, not a full diff of the file.
+
 ### Updates (Sparkle)
 - **Sparkle stays dormant** until `SPARKLE_FEED_URL` (https) and `SPARKLE_PUBLIC_ED_KEY` are set in
   `Config/NotchDeck.xcconfig`. Generate the EdDSA key with Sparkle's `generate_keys` tool (it stores the
@@ -398,6 +462,10 @@ exist only in `.env` and Cloudflare secrets.
 - **AI Chat** (Phase 4): Claude (Opus/Sonnet/Haiku 5.5), Gemini, custom OpenAI-compatible endpoint; streaming
   Markdown with highlighted code + copy buttons; thinking summaries; history + new chat; attachments (files,
   ⌘V, screen selection, File Tray); ⌥Space focused-input shortcut; refusal fallbacks.
+- **Agent Hooks** (Phase 5): 127.0.0.1 hook server (Network.framework), one-click Claude Code **and Codex** hook
+  installer / remover / updater, approval cards (command, diff, file, MCP JSON) with Approve / Deny / Always Allow and a
+  queue, 2-minute hand-back, terminal-answer detection, collapsed "Approve?" pill, finished chime + pulse,
+  approve shortcut, test request.
 - **Calendar** (Phase 3): EventKit, upcoming events with Join buttons, meeting-link parser
   (Zoom, Meet, Teams, Webex), "In 12m: …" collapsed banner.
 
@@ -405,7 +473,6 @@ exist only in `.env` and Cloudflare secrets.
 - Media fallback for browsers/system audio (`mediaremote-adapter`), real audio-level visualizer (optional).
 - Reminders (EventKit) alongside Calendar.
 - Multi-item drag-out from the tray.
-- Phase 5: local hook server, `~/.claude/settings.json` installer, Approve/Deny card.
 - Phase 6: battery/Bluetooth/Downloads Live Activities, Pomodoro, To-Dos, Clipboard history, Camera Mirror.
 - Release: Developer ID signing, notarization, DMG, production license keys, deployed proxy, Sparkle appcast.
 
@@ -437,10 +504,14 @@ Scripts/                       license-keygen.swift
 
 ## 8. Next steps
 
-1. **Hands-on check of Phase 4 (AI Chat):** add your Claude key (Settings → AI & Agents), press ⌥Space, send a
-   message; try a code question (highlighting, Copy Code), an image via ⌘V and via screen capture, History,
-   switching to Haiku, and Esc to close. Phase 3 checks below are all ✅.
-2. **Phase 3 checks:**
+1. **Hands-on check of Phase 5 (Claude Code approvals):**
+   - Settings → AI & Agents → **Send Test Request**: a card appears; try Approve and Deny.
+   - ✅ **Claude Code:** hook installed; real requests reach the notch; card keys confirmed working.
+   - ✅ **Codex:** believed working by the user (2026-11-26); revisit if anything misbehaves.
+   - Let a task finish → chime + "Done" pulse. Quit NotchDeck and confirm Claude Code still asks in the terminal.
+2. **Phase 4 (AI Chat):** ✅ Claude chat confirmed. Still worth trying: the new model menu (Gemini models),
+   adding a model ID by hand, the open/close shortcut.
+3. **Phase 3 checks:**
    - Play something in Spotify/Music → collapsed wings show art + visualizer; open the notch → controls, scrub, output picker.
    - ✅ Media (Spotify + Music controls) and ✅ Join on a Zoom event: confirmed by you.
    - ✅ Drag a file onto the notch → it opens into the tray and stores it (confirmed after the AppKit rebuild).
@@ -449,9 +520,9 @@ Scripts/                       license-keygen.swift
    - Quit and reopen NotchDeck → it asks again for Spotify/Music control and Calendars.
    - Calendar: choose calendars in Settings → Modules; check previously missing events now appear; within 15 min
      of a meeting the collapsed banner appears.
-3. Phase 5: Claude Code agent hooks (local approval server, hook installer, Approve/Deny card).
-4. Pick a Development Team in Xcode, which ends the Keychain and Automation re-prompts.
-5. Before beta: production license keypair, deploy the proxy, set the master key secret, Sparkle keys + appcast.
+4. Phase 6: Live Activities (battery, Bluetooth/AirPods, Downloads), Pomodoro, To-Dos, Clipboard, Camera Mirror.
+5. Pick a Development Team in Xcode, which ends the Keychain and Automation re-prompts.
+6. Before beta: production license keypair, deploy the proxy, set the master key secret, Sparkle keys + appcast.
 
 ---
 
@@ -471,6 +542,20 @@ Scripts/                       license-keygen.swift
   accepts drags while collapsed; more reliable file-URL loading). Calendar: per-calendar selection, range
   picker, all-day events, day-grouped scrolling list, 5-minute remote re-sync + wake + manual refresh,
   unique IDs for recurring occurrences. 77 tests (incl. real NSItemProvider drops).
+- **2026-11-26 — Codex support.** User asked for Codex alongside Claude Code. Codex hooks (checked against
+  OpenAI's current Codex hooks docs) mirror Claude Code's events and decision schema but only run commands, so
+  NotchDeck installs a `curl` command hook in `~/.codex/hooks.json`. Generalized installer (`HookAgent`), per-agent
+  status/rows, agent names on cards, Codex previews (argv commands, `apply_patch`). 134 tests, including running
+  the installed curl command end to end and with NotchDeck away. Keys confirmed working by the user.
+- **2026-11-26 — Phase 5 fix.** Card keys didn't work (the panel never had keyboard focus). The card now takes
+  focus on appearing (non-activating) and NotchDeck routes Esc / ⌘↩ / ⌘⇧↩ itself. Confirmed in the log:
+  "keyboard focus: notch" with VS Code still frontmost. The hook is installed and live: real Claude Code
+  requests are reaching the notch.
+- **2026-11-26 — Phase 5 built.** Claude Code agent hooks via the `http` hook type (checked against the
+  current Claude Code hooks reference: PermissionRequest decision schema, Stop input, HTTP response semantics).
+  Local loopback HTTP server, installer, approval cards, queue, hand-back, chime/pulse. Default port moved to
+  47823 after finding Cisco AnyConnect on 49152. 128 tests incl. end-to-end runs through the real server;
+  live checks: 403 without token, unreachable from LAN, Stop → chime.
 - **2026-11-25 — Phase 4 feedback round.** User confirmed Claude chat works. Added live model lists per
   provider (14 Claude / 25 Gemini models on this account) + hand-added IDs, per-model request shaping,
   shortcut recorder in the AI pane with press-again-to-close. Keychain reworked after the user reported

@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import SwiftUI
 
 /// Owns one `NotchPanel` for one display and runs its hover / click state machine.
@@ -17,6 +18,7 @@ final class NotchPanelController {
     private let fileTray: FileTrayStore
     private let license: LicenseManager
     private let chat: ChatStore
+    private let agentHooks: AgentHookStore
     private var dwellTask: Task<Void, Never>?
     private var shrinkTask: Task<Void, Never>?
     private var collapseTask: Task<Void, Never>?
@@ -32,6 +34,7 @@ final class NotchPanelController {
         self.fileTray = services.fileTray
         self.license = services.licenseManager
         self.chat = services.chat
+        self.agentHooks = services.agentHooks
 
         let geometry = screen.notchGeometry(preset: settings.sizePreset)
         model = NotchViewModel(
@@ -52,9 +55,9 @@ final class NotchPanelController {
         container.addSubview(hostingView)
         panel.contentView = container
 
-        model.onTap = { [weak self] in self?.transition(to: .expanded) }
+        model.onTap = { [weak self] in self?.expandFromPill() }
         model.onRequestCollapse = { [weak self] in self?.transition(to: .collapsed) }
-        panel.onEscape = { [weak self] in self?.transition(to: .collapsed) }
+        panel.onEscape = { [weak self] in self?.handleEscape() }
         hostingView.onPointerActivity = { [weak self] in
             self?.handlePointerMoved(to: NSEvent.mouseLocation)
         }
@@ -66,7 +69,7 @@ final class NotchPanelController {
         // Switching to / from the AI Chat tab changes the expanded height.
         observeContinuously({ [weak self] in
             guard let self else { return "" }
-            return "\(String(describing: self.model.selectedModule))|\(self.settings.enabledModules.map(\.rawValue))|\(self.license.isUnlocked)"
+            return "\(String(describing: self.model.selectedModule))|\(self.settings.enabledModules.map(\.rawValue))|\(self.license.isUnlocked)|\(self.agentHooks.pending.isEmpty)"
         }) { [weak self] _ in
             self?.syncPanelFrame()
         }
@@ -82,8 +85,10 @@ final class NotchPanelController {
         ExpandedShellView.resolvedSelection(model.selectedModule, enabled: license.isUnlocked ? settings.enabledModules : [])
     }
 
-    /// AI Chat gets the tall layout; everything else the standard one.
-    private var layout: ExpandedLayout { activeModule == .aiChat ? .tall : .standard }
+    /// AI Chat (and a showing approval card) get the tall layout; everything else the standard one.
+    private var layout: ExpandedLayout {
+        .forModule(activeModule, hasPendingApproval: !agentHooks.pending.isEmpty)
+    }
 
     private var expandedZone: CGRect { model.geometry.interactionZone(for: .expanded, layout: layout) }
 
@@ -168,6 +173,44 @@ final class NotchPanelController {
         if let module { model.selectedModule = module }
         transition(to: .expanded)
         isPinnedOpen = true
+    }
+
+    /// Hover or click on the collapsed notch: a waiting Claude Code request takes the stage.
+    private func expandFromPill() {
+        if !agentHooks.pending.isEmpty, settings.enabledModules.contains(.agentHooks) {
+            model.selectedModule = .agentHooks
+        }
+        transition(to: .expanded)
+    }
+
+    /// Escape: deny a showing Claude Code request; otherwise close the notch.
+    private func handleEscape() {
+        if model.state == .expanded, activeModule == .agentHooks, agentHooks.current != nil {
+            agentHooks.deny()
+        } else {
+            transition(to: .collapsed)
+        }
+    }
+
+    /// Shows the approval card and gives it keyboard focus so Esc / ⌘↩ work right away.
+    /// The panel is non-activating: the frontmost app stays frontmost, and focus returns to it
+    /// when the notch collapses after the last answer.
+    func presentApproval() {
+        expandPinned(showing: .agentHooks)
+        panel.allowsKeyFocus = true
+        panel.makeKey()
+        Logger(subsystem: "com.notchdeck.NotchDeck", category: "AgentHooks")
+            .notice("Approval card shown; keyboard focus: \(self.panel.isKeyWindow ? "notch" : "elsewhere", privacy: .public)")
+    }
+
+    /// True when this panel is showing an approval card (key routing checks this).
+    var isShowingApproval: Bool {
+        model.state == .expanded && activeModule == .agentHooks && agentHooks.current != nil
+    }
+
+    func collapse(ifShowing module: NotchModule) {
+        guard model.state == .expanded, activeModule == module else { return }
+        transition(to: .collapsed)
     }
 
     /// The AI Chat shortcut: opens the chat, or, if the chat is already open, tucks it back
@@ -263,7 +306,7 @@ final class NotchPanelController {
             try? await Task.sleep(for: .milliseconds(delay))
             guard !Task.isCancelled, let self, self.model.state == .peek else { return }
             if self.model.geometry.interactionZone(for: .peek, wing: self.wing).contains(NSEvent.mouseLocation) {
-                self.transition(to: .expanded)
+                self.expandFromPill()
             } else {
                 self.transition(to: .collapsed)
             }

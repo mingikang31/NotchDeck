@@ -10,6 +10,7 @@ struct NotchRootView: View {
     @Environment(LiveActivityCoordinator.self) private var liveActivity
     @Environment(\.settingsOpener) private var settingsOpener
     @Environment(LicenseManager.self) private var license
+    @Environment(AgentHookStore.self) private var agentHooks
 
     var body: some View {
         let geometry = model.geometry
@@ -19,7 +20,7 @@ struct NotchRootView: View {
         let activeModule = ExpandedShellView.resolvedSelection(
             model.selectedModule, enabled: license.isUnlocked ? settings.enabledModules : []
         )
-        let layout: ExpandedLayout = activeModule == .aiChat ? .tall : .standard
+        let layout = ExpandedLayout.forModule(activeModule, hasPendingApproval: !agentHooks.pending.isEmpty)
         let metrics = geometry.metrics(for: state, wing: wing, layout: layout)
         let expandedMetrics = geometry.metrics(for: .expanded, layout: layout)
         let tokens = themeEngine.tokens

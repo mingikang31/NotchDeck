@@ -17,7 +17,7 @@ struct SettingsStoreTests {
         #expect(store.displayPolicy == .notchDisplay)
         #expect(store.autoCollapse == .pointerExit)
         #expect(store.showsMenuBarIcon)
-        #expect(store.agentServerPort == 49152)
+        #expect(store.agentServerPort == 47823)
         #expect(store.enabledModules == NotchModule.allCases)
     }
 

@@ -122,6 +122,19 @@ final class NotchWindowController {
         }
     }
 
+    /// A Claude Code approval arrived: open the notch on the card (screen under the pointer).
+    func showAgentApproval() {
+        if let open = controllers.values.first(where: \.isExpanded) {
+            open.presentApproval()
+        } else {
+            activeController()?.presentApproval()
+        }
+    }
+
+    func collapse(ifShowing module: NotchModule) {
+        controllers.values.forEach { $0.collapse(ifShowing: module) }
+    }
+
     func collapseAll() {
         controllers.values.forEach { $0.transition(to: .collapsed) }
     }
@@ -150,6 +163,21 @@ final class NotchWindowController {
             MainActor.assumeIsolated { self?.route(type) }
         }) {
             eventMonitors.append(global)
+        }
+
+        // Approval card keys: Esc denies, ⌘↩ approves, ⌘⇧↩ always allows. Handled here rather than
+        // through SwiftUI shortcuts / cancelOperation, which don't reliably reach a non-activating panel.
+        if let keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
+            guard let self, let panel = event.window as? NotchPanel,
+                  let controller = self.controllers.values.first(where: { $0.panel === panel }),
+                  controller.isShowingApproval,
+                  let action = AgentHookStore.keyAction(keyCode: event.keyCode, modifiers: event.modifierFlags) else {
+                return event
+            }
+            self.services.agentHooks.perform(action)
+            return nil
+        }) {
+            eventMonitors.append(keys)
         }
 
         // Local: events delivered to NotchDeck itself (e.g. over our panel or Settings).

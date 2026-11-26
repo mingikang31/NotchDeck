@@ -28,6 +28,8 @@ final class SettingsStore {
         static let customEndpointURL = "notchdeck.chat.customEndpointURL"
         static let handAddedModels = "notchdeck.chat.handAddedModels"
         static let agentServerPort = "notchdeck.agentServerPort"
+        static let agentHookToken = "notchdeck.agentHookToken"
+        static let agentChimeEnabled = "notchdeck.agentChimeEnabled"
         static let geometryOutline = "notchdeck.debug.showsGeometryOutline"
         static let startExpanded = "notchdeck.debug.startExpanded"
         static let ephemeralSecureStore = "notchdeck.debug.ephemeralSecureStore"
@@ -35,7 +37,9 @@ final class SettingsStore {
 
     static let hoverDelayRange = 0...500
     static let agentPortRange = 1024...65535
-    static let defaultAgentPort = 49152
+    /// Outside macOS's ephemeral range (49152–65535), where system services and VPN clients bind
+    /// (e.g. Cisco AnyConnect's vpnagentd holds 127.0.0.1:49152).
+    static let defaultAgentPort = 47823
     static let defaultSystemPrompt = "You are a concise assistant living in the Mac's notch. Prefer short, direct answers."
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -102,6 +106,10 @@ final class SettingsStore {
     var handAddedModels: [ChatModelRef] {
         didSet { defaults.set(handAddedModels.map(\.storageKey), forKey: Key.handAddedModels) }
     }
+    /// Shared secret the installed Claude Code hook sends; requests without it are refused.
+    var agentHookToken: String { didSet { defaults.set(agentHookToken, forKey: Key.agentHookToken) } }
+    /// Chime when Claude Code finishes a task.
+    var agentChimeEnabled: Bool { didSet { defaults.set(agentChimeEnabled, forKey: Key.agentChimeEnabled) } }
     var agentServerPort: Int {
         didSet {
             let clamped = Self.clamp(agentServerPort, to: Self.agentPortRange)
@@ -153,6 +161,8 @@ final class SettingsStore {
         chatSystemPrompt = defaults.string(forKey: Key.chatSystemPrompt) ?? Self.defaultSystemPrompt
         customEndpointURL = defaults.string(forKey: Key.customEndpointURL) ?? ""
         handAddedModels = (defaults.stringArray(forKey: Key.handAddedModels) ?? []).compactMap(ChatModelRef.init(storageKey:))
+        agentHookToken = defaults.string(forKey: Key.agentHookToken) ?? ""
+        agentChimeEnabled = defaults.object(forKey: Key.agentChimeEnabled) as? Bool ?? true
         agentServerPort = Self.clamp(defaults.object(forKey: Key.agentServerPort) as? Int ?? Self.defaultAgentPort, to: Self.agentPortRange)
 
         showsGeometryOutline = defaults.bool(forKey: Key.geometryOutline)

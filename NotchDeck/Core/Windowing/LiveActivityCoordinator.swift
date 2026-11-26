@@ -8,11 +8,15 @@ nonisolated enum LiveActivity: Equatable, Sendable {
     case nowPlaying
     /// Countdown on the left, event title on the right.
     case upcomingEvent(id: String)
+    /// Claude Code is waiting for an approval (highest priority).
+    case agentApproval(count: Int)
+    /// Brief pulse after a Claude Code task finishes.
+    case agentFinished
 
     var wingWidth: CGFloat {
         switch self {
         case .nowPlaying: 34
-        case .upcomingEvent: 92
+        case .upcomingEvent, .agentApproval, .agentFinished: 92
         }
     }
 }
@@ -28,16 +32,18 @@ final class LiveActivityCoordinator {
     @ObservationIgnored private let calendar: CalendarStore
     @ObservationIgnored private let settings: SettingsStore
     @ObservationIgnored private let license: LicenseManager
+    @ObservationIgnored private let agentHooks: AgentHookStore
 
     /// Bumped every 30 s so time-based priorities re-evaluate.
     private var clock = Date()
     @ObservationIgnored private var tickTask: Task<Void, Never>?
 
-    init(media: NowPlayingStore, calendar: CalendarStore, settings: SettingsStore, license: LicenseManager) {
+    init(media: NowPlayingStore, calendar: CalendarStore, settings: SettingsStore, license: LicenseManager, agentHooks: AgentHookStore) {
         self.media = media
         self.calendar = calendar
         self.settings = settings
         self.license = license
+        self.agentHooks = agentHooks
     }
 
     func start() {
@@ -52,6 +58,10 @@ final class LiveActivityCoordinator {
     var current: LiveActivity? {
         guard license.isUnlocked else { return nil }
         let enabled = Set(settings.enabledModules)
+        if enabled.contains(.agentHooks) {
+            if !agentHooks.pending.isEmpty { return .agentApproval(count: agentHooks.pending.count) }
+            if agentHooks.lastFinished != nil { return .agentFinished }
+        }
         let event = enabled.contains(.calendar) ? calendar.nextEvent(at: clock) : nil
         return Self.resolve(
             isMediaPlaying: enabled.contains(.media) && media.isPlaying,
@@ -85,6 +95,7 @@ struct LiveActivityWings: View {
     @Environment(NowPlayingStore.self) private var media
     @Environment(CalendarStore.self) private var calendar
     @Environment(SettingsStore.self) private var settings
+    @Environment(AgentHookStore.self) private var agentHooks
 
     var body: some View {
         HStack(spacing: 0) {
@@ -115,6 +126,22 @@ struct LiveActivityWings: View {
                     .padding(.leading, 10)
                 }
             }
+        case .agentApproval(let count):
+            HStack(spacing: 4) {
+                Image(systemName: "hand.raised.fill").font(.system(size: 9, weight: .bold))
+                Text(count > 1 ? "\(count) waiting" : "Approve?").font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(.orange)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 10)
+        case .agentFinished:
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark.circle.fill").font(.system(size: 10, weight: .bold))
+                Text("Done").font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(.green)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 10)
         }
     }
 
@@ -130,6 +157,19 @@ struct LiveActivityWings: View {
                 .font(.system(size: 11, weight: .medium))
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.trailing, 10)
+        case .agentApproval:
+            Text(agentHooks.current?.toolName ?? "Claude")
+                .font(.system(size: 11, weight: .medium))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.trailing, 10)
+        case .agentFinished:
+            Text(agentHooks.lastFinished?.project ?? "Agent")
+                .font(.system(size: 11, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.trailing, 10)
         }
