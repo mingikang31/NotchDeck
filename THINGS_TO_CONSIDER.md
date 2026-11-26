@@ -4,7 +4,7 @@ The running notebook for this project: what exists, how to work it, what to watc
 what's next. Kept up to date as each phase lands. The full product spec is
 [`notchdeck_technical_specification.txt`](notchdeck_technical_specification.txt).
 
-_Last updated: 2026-11-26, System Monitor committed; Phase 6 built (needs hands-on check)._
+_Last updated: 2026-11-26, Phase 6 committed; all roadmap phases built._
 
 ---
 
@@ -17,7 +17,7 @@ _Last updated: 2026-11-26, System Monitor committed; Phase 6 built (needs hands-
 | 3 | Now Playing + visualizer, File Tray (drag in/out, AirDrop, zip), Calendar banner + meeting links | ✅ Done (confirmed) |
 | 4 | Embedded AI Chat (Claude + Gemini streaming, Markdown, attachments, focus shortcut) | ✅ Done (Claude chat confirmed) |
 | 5 | Claude Code & Codex agent hooks (127.0.0.1 server, hook installer, Approve/Deny card) | ✅ Done (Claude Code confirmed; Codex believed working) |
-| 6 | Live Activities (battery, Bluetooth, Downloads), Pomodoro, To-Dos, Clipboard, Camera Mirror | ✅ Built (needs hands-on check) |
+| 6 | Live Activities (battery, Bluetooth, Downloads), Pomodoro, To-Dos, Clipboard, Camera Mirror | ✅ Done (initial review OK; tweaks to come) |
 | + | System Monitor tab (CPU / GPU / memory, asitop/macmon-style), requested 2026-11-26 | ✅ Done (styles approved) |
 
 ---
@@ -657,6 +657,7 @@ Scripts/                       license-keygen.swift
 
 ## 9. Log
 
+- **2026-11-26 — Phase 6 committed** after the user's initial review; minor adjustments to follow.
 - **2026-11-26 — Phase 6 built.** Live Activities (IOPowerSources battery pills + card with watts / health,
   IOBluetooth connection toasts with AirPods / HID battery levels, kqueue Downloads watcher with drag-out,
   AirDrop, add-to-tray), Pomodoro (persisted state, countdown pill, chime, auto-start options), To-Dos (JSON),
