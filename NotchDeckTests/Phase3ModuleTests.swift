@@ -294,10 +294,12 @@ struct ModuleSelectionTests {
         #expect(ExpandedShellView.resolvedSelection(.media, enabled: []) == nil)
     }
 
-    @Test func phaseThreeModulesAreAvailable() {
+    @Test func shippedModulesAreAvailable() {
         #expect(NotchModule.media.isAvailable && NotchModule.fileTray.isAvailable && NotchModule.calendar.isAvailable)
-        #expect(!NotchModule.aiChat.isAvailable)
+        #expect(NotchModule.aiChat.isAvailable)
+        #expect(!NotchModule.agentHooks.isAvailable)
         #expect(ShortcutAction.togglePlayPause.pendingModule == nil)
-        #expect(ShortcutAction.openAIChat.pendingModule == .aiChat)
+        #expect(ShortcutAction.openAIChat.pendingModule == nil)
+        #expect(ShortcutAction.approveAgentRequest.pendingModule == .agentHooks)
     }
 }

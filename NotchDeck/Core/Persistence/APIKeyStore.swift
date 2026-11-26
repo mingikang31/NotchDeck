@@ -5,7 +5,7 @@ import Observation
 @Observable
 final class APIKeyStore {
     enum Provider: String, CaseIterable, Identifiable {
-        case anthropic, gemini
+        case anthropic, gemini, openAICompatible
 
         var id: String { rawValue }
 
@@ -13,6 +13,7 @@ final class APIKeyStore {
             switch self {
             case .anthropic: "Claude (Anthropic)"
             case .gemini: "Gemini (Google)"
+            case .openAICompatible: "Custom endpoint"
             }
         }
 
@@ -20,10 +21,19 @@ final class APIKeyStore {
             switch self {
             case .anthropic: "sk-ant-…"
             case .gemini: "AIza…"
+            case .openAICompatible: "Optional for local servers"
             }
         }
 
         fileprivate var account: String { "api.\(rawValue)" }
+
+        init(_ provider: ChatProvider) {
+            switch provider {
+            case .anthropic: self = .anthropic
+            case .gemini: self = .gemini
+            case .openAICompatible: self = .openAICompatible
+            }
+        }
     }
 
     /// Which providers have a key saved (checked via attributes only, without reading secrets).

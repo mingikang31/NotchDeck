@@ -16,7 +16,9 @@ final class NotchPanelController {
     private let liveActivity: LiveActivityCoordinator
     private let fileTray: FileTrayStore
     private let license: LicenseManager
+    private let chat: ChatStore
     private var dwellTask: Task<Void, Never>?
+    private var shrinkTask: Task<Void, Never>?
     private var collapseTask: Task<Void, Never>?
     /// Set when opened explicitly (menu / shortcut): pointer exit then won't auto-collapse.
     private var isPinnedOpen = false
@@ -29,6 +31,7 @@ final class NotchPanelController {
         self.liveActivity = services.liveActivity
         self.fileTray = services.fileTray
         self.license = services.licenseManager
+        self.chat = services.chat
 
         let geometry = screen.notchGeometry(preset: settings.sizePreset)
         model = NotchViewModel(
@@ -59,12 +62,30 @@ final class NotchPanelController {
         container.dropDelegate = self
         panel.setFrame(geometry.panelFrame, display: false)
         panel.orderFrontRegardless()
+
+        // Switching to / from the AI Chat tab changes the expanded height.
+        observeContinuously({ [weak self] in
+            guard let self else { return "" }
+            return "\(String(describing: self.model.selectedModule))|\(self.settings.enabledModules.map(\.rawValue))|\(self.license.isUnlocked)"
+        }) { [weak self] _ in
+            self?.syncPanelFrame()
+        }
     }
 
     var isExpanded: Bool { model.state == .expanded }
 
     /// Width of the live-activity wings currently beside the cutout (0 when idle).
     private var wing: CGFloat { liveActivity.wingWidth }
+
+    /// The module the expanded notch is showing (same resolution the view uses).
+    private var activeModule: NotchModule? {
+        ExpandedShellView.resolvedSelection(model.selectedModule, enabled: license.isUnlocked ? settings.enabledModules : [])
+    }
+
+    /// AI Chat gets the tall layout; everything else the standard one.
+    private var layout: ExpandedLayout { activeModule == .aiChat ? .tall : .standard }
+
+    private var expandedZone: CGRect { model.geometry.interactionZone(for: .expanded, layout: layout) }
 
     // MARK: Screen updates
 
@@ -74,7 +95,28 @@ final class NotchPanelController {
         model.refreshRate = screen.maximumFramesPerSecond
         guard geometry != model.geometry else { return }
         model.geometry = geometry
-        panel.setFrame(geometry.panelFrame, display: true)
+        panel.setFrame(geometry.panelFrame(for: model.state == .expanded ? layout : .standard), display: true)
+    }
+
+    /// Sizes the window for the current layout. Growing happens immediately (content is top-anchored,
+    /// so nothing moves); shrinking waits for the collapse / tab-switch animation to finish.
+    /// Keeping the window no taller than needed avoids an invisible strip that would eat clicks.
+    private func syncPanelFrame() {
+        let desired = model.geometry.panelFrame(for: model.state == .expanded ? layout : .standard)
+        if desired.height >= panel.frame.height {
+            shrinkTask?.cancel()
+            shrinkTask = nil
+            if desired != panel.frame { panel.setFrame(desired, display: true) }
+            return
+        }
+        guard shrinkTask == nil else { return }
+        shrinkTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled, let self else { return }
+            self.shrinkTask = nil
+            let target = self.model.geometry.panelFrame(for: self.model.state == .expanded ? self.layout : .standard)
+            if target.height < self.panel.frame.height { self.panel.setFrame(target, display: true) }
+        }
     }
 
     func close() {
@@ -98,7 +140,7 @@ final class NotchPanelController {
                 transition(to: .collapsed)
             }
         case .expanded:
-            if geometry.interactionZone(for: .expanded).contains(point) {
+            if expandedZone.contains(point) {
                 cancelPendingCollapse()
             } else {
                 schedulePendingCollapse()
@@ -107,8 +149,7 @@ final class NotchPanelController {
     }
 
     func handleMouseDown(at point: CGPoint) {
-        guard model.state == .expanded,
-              !model.geometry.interactionZone(for: .expanded).contains(point) else { return }
+        guard model.state == .expanded, !expandedZone.contains(point) else { return }
         transition(to: .collapsed)
     }
 
@@ -129,6 +170,25 @@ final class NotchPanelController {
         isPinnedOpen = true
     }
 
+    /// The AI Chat shortcut: opens the chat, or, if the chat is already open, tucks it back
+    /// into the notch.
+    func toggleChat() {
+        if model.state == .expanded, activeModule == .aiChat {
+            transition(to: .collapsed)
+        } else {
+            focusChat()
+        }
+    }
+
+    /// Open on AI Chat with the text field focused, without activating NotchDeck
+    /// (the non-activating panel takes keyboard focus; the frontmost app stays frontmost).
+    func focusChat() {
+        expandPinned(showing: .aiChat)
+        panel.allowsKeyFocus = true
+        panel.makeKey()
+        chat.requestFocus()
+    }
+
     /// A file drag is in progress: open straight into the File Tray when it reaches the notch,
     /// so the file can be dropped in one gesture.
     func handleDragHover(at point: CGPoint) {
@@ -143,6 +203,7 @@ final class NotchPanelController {
     /// The drag session ended (mouse-up anywhere).
     func endDragSession() {
         fileTray.isDropTargeted = false
+        chat.isDropTargeted = false
         if model.state == .collapsed { panel.ignoresMouseEvents = true }
     }
 
@@ -168,14 +229,26 @@ final class NotchPanelController {
             model.state = newState
         }
         applyWindowBehavior(for: newState)
+        syncPanelFrame()
     }
 
     private func applyWindowBehavior(for state: NotchState) {
         // Collapsed: fully click-through so menu bar items beside the notch keep working.
         panel.ignoresMouseEvents = state == .collapsed
         panel.level = state == .expanded ? NotchPanel.activeLevel : NotchPanel.idleLevel
-        if state == .collapsed {
+        switch state {
+        case .expanded:
+            // May take keyboard focus, but only when a text field is clicked (becomesKeyOnlyIfNeeded).
+            panel.allowsKeyFocus = true
+        case .collapsed:
+            if panel.isKeyWindow {
+                // Hand keyboard focus back to the app the user was in.
+                panel.orderOut(nil)
+                panel.orderFrontRegardless()
+            }
             panel.allowsKeyFocus = false
+        case .peek:
+            break
         }
     }
 
@@ -198,12 +271,13 @@ final class NotchPanelController {
     }
 
     private func schedulePendingCollapse() {
-        guard collapseTask == nil, !isPinnedOpen, settings.autoCollapse == .pointerExit else { return }
+        // Never auto-collapse while the user is typing in the notch.
+        guard collapseTask == nil, !isPinnedOpen, !panel.isKeyWindow, settings.autoCollapse == .pointerExit else { return }
         collapseTask = Task { [weak self] in
             try? await Task.sleep(for: Self.collapseGrace)
             guard !Task.isCancelled, let self else { return }
             self.collapseTask = nil
-            if !self.model.geometry.interactionZone(for: .expanded).contains(NSEvent.mouseLocation) {
+            if !self.expandedZone.contains(NSEvent.mouseLocation) {
                 self.transition(to: .collapsed)
             }
         }
@@ -219,6 +293,12 @@ final class NotchPanelController {
 
 extension NotchPanelController: NotchDropDelegate {
     func notchDragUpdated(_ info: NSDraggingInfo) -> NSDragOperation {
+        // With the chat open, drops become message attachments instead of tray items.
+        if model.state == .expanded, activeModule == .aiChat {
+            let inside = expandedZone.contains(panel.convertPoint(toScreen: info.draggingLocation))
+            chat.isDropTargeted = inside
+            return inside ? .copy : []
+        }
         guard acceptsDrops, FileTrayStore.canAccept(info.draggingPasteboard) else {
             fileTray.isDropTargeted = false
             return []
@@ -238,10 +318,15 @@ extension NotchPanelController: NotchDropDelegate {
 
     func notchDragExited() {
         fileTray.isDropTargeted = false
+        chat.isDropTargeted = false
     }
 
     func notchPerformDrop(_ info: NSDraggingInfo) -> Bool {
         fileTray.isDropTargeted = false
+        if model.state == .expanded, activeModule == .aiChat {
+            chat.isDropTargeted = false
+            return chat.attach(from: info.draggingPasteboard)
+        }
         guard acceptsDrops else { return false }
         model.selectedModule = .fileTray
         return fileTray.handleDrop(pasteboard: info.draggingPasteboard)

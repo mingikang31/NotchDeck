@@ -94,20 +94,8 @@ nonisolated enum CalendarRange: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// Default chat model tier; concrete model IDs are resolved by the AI Chat module (Phase 4).
-nonisolated enum ChatModelChoice: String, CaseIterable, Identifiable, Sendable {
-    case claudeSonnet, claudeHaiku, geminiFlash, geminiPro
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .claudeSonnet: "Claude Sonnet"
-        case .claudeHaiku: "Claude Haiku"
-        case .geminiFlash: "Gemini Flash"
-        case .geminiPro: "Gemini Pro"
-        }
-    }
+nonisolated enum ChatProvider: String, CaseIterable, Codable, Sendable {
+    case anthropic, gemini, openAICompatible
 }
 
 /// Every notch module, in default tab order.
@@ -147,7 +135,7 @@ nonisolated enum NotchModule: String, CaseIterable, Codable, Identifiable, Senda
     }
 
     /// Latest roadmap phase that has shipped; modules at or below it are functional.
-    static let shippedThroughPhase = 3
+    static let shippedThroughPhase = 4
 
     var isAvailable: Bool { phase <= Self.shippedThroughPhase }
 

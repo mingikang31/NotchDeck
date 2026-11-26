@@ -14,6 +14,7 @@ nonisolated enum SessionPermissions {
         case calendar = "Calendar"         // EventKit events
         case reminders = "Reminders"       // EventKit reminders (later)
         case camera = "Camera"             // Camera Mirror (Phase 6)
+        case screenCapture = "ScreenCapture" // AI Chat screen-selection capture
     }
 
     private static let logger = Logger(subsystem: "com.notchdeck.NotchDeck", category: "Permissions")

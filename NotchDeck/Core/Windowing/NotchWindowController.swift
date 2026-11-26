@@ -109,6 +109,19 @@ final class NotchWindowController {
         activeController()?.expandPinned(showing: module)
     }
 
+    func focusChat() {
+        activeController()?.focusChat()
+    }
+
+    /// Shortcut behavior: open the chat, or close it if it's already showing.
+    func toggleChat() {
+        if let open = controllers.values.first(where: \.isExpanded) {
+            open.toggleChat()
+        } else {
+            activeController()?.toggleChat()
+        }
+    }
+
     func collapseAll() {
         controllers.values.forEach { $0.transition(to: .collapsed) }
     }

@@ -9,14 +9,19 @@ struct NotchRootView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(LiveActivityCoordinator.self) private var liveActivity
     @Environment(\.settingsOpener) private var settingsOpener
+    @Environment(LicenseManager.self) private var license
 
     var body: some View {
         let geometry = model.geometry
         let state = model.state
         let activity = liveActivity.current
         let wing = min(activity?.wingWidth ?? 0, geometry.maximumWingWidth)
-        let metrics = geometry.metrics(for: state, wing: wing)
-        let expandedMetrics = geometry.metrics(for: .expanded)
+        let activeModule = ExpandedShellView.resolvedSelection(
+            model.selectedModule, enabled: license.isUnlocked ? settings.enabledModules : []
+        )
+        let layout: ExpandedLayout = activeModule == .aiChat ? .tall : .standard
+        let metrics = geometry.metrics(for: state, wing: wing, layout: layout)
+        let expandedMetrics = geometry.metrics(for: .expanded, layout: layout)
         let tokens = themeEngine.tokens
 
         ZStack(alignment: .top) {

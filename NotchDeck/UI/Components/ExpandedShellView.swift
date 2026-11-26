@@ -68,6 +68,7 @@ struct ExpandedShellView: View {
         case .media: MediaModuleView(tokens: tokens)
         case .fileTray: FileTrayModuleView(tokens: tokens)
         case .calendar: CalendarModuleView(tokens: tokens)
+        case .aiChat: AIChatModuleView(tokens: tokens)
         default: ComingSoonView(module: module, tokens: tokens)
         }
     }

@@ -32,7 +32,7 @@ enum ShortcutAction: CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .toggleNotch: "Toggle Notch Expand / Collapse"
-        case .openAIChat: "Open AI Chat"
+        case .openAIChat: "Open / Close AI Chat"
         case .togglePlayPause: "Play / Pause Media"
         case .openFileTray: "Open File Tray"
         case .togglePomodoro: "Start / Pause Pomodoro"

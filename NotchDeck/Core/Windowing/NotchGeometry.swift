@@ -34,6 +34,15 @@ nonisolated enum NotchSizePreset: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// Height below the cutout for the tall layout (AI Chat needs room for a conversation).
+    var tallContentHeight: CGFloat {
+        switch self {
+        case .compact: 300
+        case .medium: 360
+        case .large: 440
+        }
+    }
+
     /// Height available for content *below* the cutout strip.
     var contentHeight: CGFloat {
         switch self {
@@ -42,6 +51,11 @@ nonisolated enum NotchSizePreset: String, CaseIterable, Identifiable, Sendable {
         case .large: 190
         }
     }
+}
+
+/// Which expanded size to use: standard modules, or the taller conversation layout.
+nonisolated enum ExpandedLayout: Equatable, Sendable {
+    case standard, tall
 }
 
 /// Size and curvature of the notch silhouette for a given state.
@@ -104,9 +118,17 @@ nonisolated struct NotchGeometry: Equatable, Sendable {
     /// The hardware notch rect, or the virtual pill rect on non-notch displays.
     let cutout: CGRect
     let expandedBodySize: CGSize
-    /// Fixed panel frame: large enough for the expanded state + shadow, so the
-    /// window never resizes mid-animation (resizing NSWindows per frame stutters).
+    /// Expanded size for the tall (chat) layout: same width, more height.
+    let tallExpandedBodySize: CGSize
+    /// Panel frame for the standard layout: large enough for the expanded state + shadow, so
+    /// the window never resizes mid-animation (resizing NSWindows per frame stutters).
     let panelFrame: CGRect
+    /// Panel frame while the tall layout is (or is becoming) visible. Same top edge and width.
+    let tallPanelFrame: CGRect
+
+    func panelFrame(for layout: ExpandedLayout) -> CGRect {
+        layout == .tall ? tallPanelFrame : panelFrame
+    }
 
     /// Height of the strip occupied by the cutout; expanded content starts below it.
     var topInset: CGFloat { cutout.height }
@@ -120,7 +142,7 @@ nonisolated struct NotchGeometry: Equatable, Sendable {
 
     /// - Parameter wing: width of the live-activity content shown on *each* side of the cutout
     ///   while collapsed or peeking (album art + visualizer, next meeting). 0 when idle.
-    func metrics(for state: NotchState, wing: CGFloat = 0) -> NotchShapeMetrics {
+    func metrics(for state: NotchState, wing: CGFloat = 0, layout: ExpandedLayout = .standard) -> NotchShapeMetrics {
         let wing = min(max(wing, 0), maximumWingWidth)
         return switch state {
         case .collapsed:
@@ -140,7 +162,7 @@ nonisolated struct NotchGeometry: Equatable, Sendable {
             )
         case .expanded:
             NotchShapeMetrics(
-                bodySize: expandedBodySize,
+                bodySize: layout == .tall ? tallExpandedBodySize : expandedBodySize,
                 earRadius: Self.expandedEarRadius,
                 bottomRadius: Self.expandedBottomRadius
             )
@@ -148,8 +170,8 @@ nonisolated struct NotchGeometry: Equatable, Sendable {
     }
 
     /// Global rect of the full silhouette (ears included), top-anchored and centered on the cutout.
-    func shapeRect(for state: NotchState, wing: CGFloat = 0) -> CGRect {
-        let size = metrics(for: state, wing: wing).shapeSize
+    func shapeRect(for state: NotchState, wing: CGFloat = 0, layout: ExpandedLayout = .standard) -> CGRect {
+        let size = metrics(for: state, wing: wing, layout: layout).shapeSize
         return CGRect(
             x: cutout.midX - size.width / 2,
             y: screenFrame.maxY - size.height,
@@ -166,14 +188,14 @@ nonisolated struct NotchGeometry: Equatable, Sendable {
 
     /// Region in which the pointer is considered "on" the notch for the given state.
     /// Extends above the screen's top edge so the very top pixel row is included.
-    func interactionZone(for state: NotchState, wing: CGFloat = 0) -> CGRect {
+    func interactionZone(for state: NotchState, wing: CGFloat = 0, layout: ExpandedLayout = .standard) -> CGRect {
         switch state {
         case .collapsed:
             bodyRect(for: .collapsed, wing: wing).insetBy(dx: -Self.hoverSlop, dy: -Self.hoverSlop)
         case .peek:
             shapeRect(for: .peek, wing: wing).insetBy(dx: -Self.hoverSlop, dy: -Self.hoverSlop)
         case .expanded:
-            shapeRect(for: .expanded).insetBy(dx: -Self.exitSlop, dy: -Self.exitSlop)
+            shapeRect(for: .expanded, layout: layout).insetBy(dx: -Self.exitSlop, dy: -Self.exitSlop)
         }
     }
 
@@ -237,12 +259,25 @@ nonisolated struct NotchGeometry: Equatable, Sendable {
             height: panelHeight
         )
 
+        // Tall layout: capped at 70% of the screen so it never swallows a small display.
+        let tallBodyHeight = min(cutout.height + preset.tallContentHeight, (screenFrame.height * 0.7).rounded(.down))
+        let tallExpandedBodySize = CGSize(width: expandedBodySize.width, height: max(expandedBodySize.height, tallBodyHeight))
+        let tallPanelHeight = (tallExpandedBodySize.height + shadowPadding).rounded(.up)
+        let tallPanelFrame = CGRect(
+            x: panelFrame.minX,
+            y: screenFrame.maxY - tallPanelHeight,
+            width: panelWidth,
+            height: tallPanelHeight
+        )
+
         return NotchGeometry(
             kind: kind,
             screenFrame: screenFrame,
             cutout: cutout,
             expandedBodySize: expandedBodySize,
-            panelFrame: panelFrame
+            tallExpandedBodySize: tallExpandedBodySize,
+            panelFrame: panelFrame,
+            tallPanelFrame: tallPanelFrame
         )
     }
 }

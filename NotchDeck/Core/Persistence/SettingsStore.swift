@@ -25,6 +25,8 @@ final class SettingsStore {
         static let permissionsPerSession = "notchdeck.privacy.permissionsPerSession"
         static let calendarWasConnected = "notchdeck.calendar.wasConnected"
         static let chatSystemPrompt = "notchdeck.chatSystemPrompt"
+        static let customEndpointURL = "notchdeck.chat.customEndpointURL"
+        static let handAddedModels = "notchdeck.chat.handAddedModels"
         static let agentServerPort = "notchdeck.agentServerPort"
         static let geometryOutline = "notchdeck.debug.showsGeometryOutline"
         static let startExpanded = "notchdeck.debug.startExpanded"
@@ -91,8 +93,15 @@ final class SettingsStore {
 
     // MARK: AI & Agents
 
-    var chatModel: ChatModelChoice { didSet { defaults.set(chatModel.rawValue, forKey: Key.chatModel) } }
+    /// Default model for new chats (provider + exact model ID).
+    var chatModel: ChatModelRef { didSet { defaults.set(chatModel.storageKey, forKey: Key.chatModel) } }
     var chatSystemPrompt: String { didSet { defaults.set(chatSystemPrompt, forKey: Key.chatSystemPrompt) } }
+    /// Optional OpenAI-compatible endpoint (base URL ending in /v1, e.g. a local server).
+    var customEndpointURL: String { didSet { defaults.set(customEndpointURL, forKey: Key.customEndpointURL) } }
+    /// Model IDs the user typed in (beyond what the providers' model lists return).
+    var handAddedModels: [ChatModelRef] {
+        didSet { defaults.set(handAddedModels.map(\.storageKey), forKey: Key.handAddedModels) }
+    }
     var agentServerPort: Int {
         didSet {
             let clamped = Self.clamp(agentServerPort, to: Self.agentPortRange)
@@ -140,8 +149,10 @@ final class SettingsStore {
         calendarRange = choice(Key.calendarRange, CalendarRange.next3Days)
         calendarShowsAllDay = defaults.object(forKey: Key.calendarShowsAllDay) as? Bool ?? true
 
-        chatModel = choice(Key.chatModel, ChatModelChoice.claudeSonnet)
+        chatModel = defaults.string(forKey: Key.chatModel).flatMap(ChatModelRef.init(storageKey:)) ?? .defaultModel
         chatSystemPrompt = defaults.string(forKey: Key.chatSystemPrompt) ?? Self.defaultSystemPrompt
+        customEndpointURL = defaults.string(forKey: Key.customEndpointURL) ?? ""
+        handAddedModels = (defaults.stringArray(forKey: Key.handAddedModels) ?? []).compactMap(ChatModelRef.init(storageKey:))
         agentServerPort = Self.clamp(defaults.object(forKey: Key.agentServerPort) as? Int ?? Self.defaultAgentPort, to: Self.agentPortRange)
 
         showsGeometryOutline = defaults.bool(forKey: Key.geometryOutline)

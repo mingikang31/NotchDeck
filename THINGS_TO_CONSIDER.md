@@ -4,7 +4,7 @@ The running notebook for this project: what exists, how to work it, what to watc
 what's next. Kept up to date as each phase lands. The full product spec is
 [`notchdeck_technical_specification.txt`](notchdeck_technical_specification.txt).
 
-_Last updated: 2026-11-25, Phase 3 complete and confirmed by hand, Phase 4 in progress._
+_Last updated: 2026-11-25, Phase 4 committed, Phase 5 in progress._
 
 ---
 
@@ -15,8 +15,8 @@ _Last updated: 2026-11-25, Phase 3 complete and confirmed by hand, Phase 4 in pr
 | 1 | Window shell: NotchPanel, NotchGeometry, hover/click animations, Classic Black + Frosted Glass | ✅ Done |
 | 2 | SettingsStore, 6-tab Settings, global shortcuts, 7-day trial + license activation, Sparkle wiring | ✅ Done |
 | 3 | Now Playing + visualizer, File Tray (drag in/out, AirDrop, zip), Calendar banner + meeting links | ✅ Done (confirmed) |
-| 4 | Embedded AI Chat (Claude + Gemini streaming, Markdown, attachments, focus shortcut) | 🚧 In progress |
-| 5 | Claude Code agent hooks (127.0.0.1 server, hook installer, Approve/Deny card) | ⏳ Planned |
+| 4 | Embedded AI Chat (Claude + Gemini streaming, Markdown, attachments, focus shortcut) | ✅ Done (Claude chat confirmed) |
+| 5 | Claude Code agent hooks (127.0.0.1 server, hook installer, Approve/Deny card) | 🚧 In progress |
 | 6 | Live Activities (battery, Bluetooth, Downloads), Pomodoro, To-Dos, Clipboard, Camera Mirror | ⏳ Planned |
 
 ---
@@ -66,6 +66,21 @@ Or open `NotchDeck.xcodeproj` in Xcode and press ⌘R / ⌘U. New `.swift` files
 - **File Tray:** drag files, images or text **anywhere onto the notch** (collapsed or open). It opens into the
   tray and shows "Release to add". Drag items back out to Finder/Slack/Mail; double-click opens; click selects; actions
   (AirDrop / Zip / Clear) apply to the selection, or everything if nothing is selected.
+- **AI Chat:** press **⌥Space** anywhere: the notch opens tall with the cursor in the message field (your
+  current app stays in front). Or click the ✨ tab. First add a key: Settings → AI & Agents → API Keys.
+  - **Model pill** (top-left): every model your keys can use, fetched live from each provider (Claude Models
+    API, Gemini model list, custom endpoint `/models`), grouped by provider. Default: Claude Opus 5.5.
+    Your pick becomes the default for new chats. *Refresh Model Lists* is at the bottom of the menu.
+  - **Other model IDs:** Settings → AI & Agents → Models → pick the provider, type the ID, **Add**.
+  - **Shortcut:** ⌥Space by default; change it in Settings → AI & Agents (or Shortcuts). Pressing it again
+    while the chat is open tucks it back into the notch.
+  - **Return** sends, **Shift-Return** adds a line. **Esc** or clicking outside closes the notch (typing keeps
+    it open even if the pointer leaves).
+  - **Attach** (📎): capture a screen selection, paste from clipboard, choose files, or pick items from the
+    File Tray. **⌘V** in the message field attaches copied images/files. Dropping files on the open chat
+    attaches them.
+  - Replies stream with Markdown, syntax-highlighted code (**Copy Code**), **Copy Response** on hover, a
+    collapsible "Thought process" summary, **Retry** on errors, **History** (🕘) and **New Chat** (✎).
 - **Calendar:** open the Calendar tab and click *Connect Calendar* (macOS asks for access). Shows upcoming
   events grouped by day (Today / Tomorrow / …). With more than three, **scroll** (trackpad/wheel) through them;
   a fade at the bottom and "scroll for more" in the header show there's more. Green **Join** button for Zoom, Google Meet,
@@ -105,13 +120,88 @@ Debug builds talk to that server. With it running, in Settings → License:
 
 ---
 
-## 3. Things to consider ⚠️
+## 3. Keychain permission prompt: development builds only
 
-### Signing and the Keychain
-- **Keychain prompts after every rebuild.** There's no code-signing certificate on this Mac, so builds
-  are signed ad-hoc and each rebuild gets a new signature. macOS then asks once per rebuild to let
-  NotchDeck read its Keychain item. **Fix:** in Xcode → target → Signing & Capabilities, choose your
-  Apple Development team (a free Apple ID works). For quick UI work, use `-notchdeck.debug.ephemeralSecureStore YES`.
+> **Users of released NotchDeck will never see this prompt.** The "NotchDeck wants to use your confidential
+> information stored in … in your keychain" dialog is a side effect of how *development* builds are signed
+> on this Mac. It is not part of the product, and released builds are designed so it can't appear.
+
+### What the prompt is
+macOS shows this dialog whenever an app reads a Keychain item **and macOS can't confirm the app is the same
+one that created the item**. The wording ("confidential information") is fixed by macOS and is the same no
+matter what the item holds, which is why it looks alarming.
+
+### What NotchDeck stores in the Keychain (and what it never touches)
+- **Only NotchDeck's own secrets:** the 7-day trial / license record and the AI API keys you enter
+  (Claude, Gemini, custom endpoint).
+- They live in **one** Keychain item named **"NotchDeck"** (service `com.notchdeck.NotchDeck`,
+  account `secrets`).
+- NotchDeck **never reads any other Keychain item**: not your passwords, not other apps' data. It only asks
+  for that one item, by name.
+- The item is **read once per launch** and kept in memory. Using the chat, refreshing model lists or the
+  hourly license check never re-reads it.
+
+### Why development builds show it
+- There's no Apple code-signing certificate on this Mac, so every build is signed **ad-hoc**.
+- An ad-hoc signature is derived from the app's exact binary, so **every rebuild gets a new signature**.
+- A classic Keychain item remembers which app created it **by signature**. After a rebuild the signature no
+  longer matches, so macOS asks once: "is this new build allowed?"
+- Choosing **Always Allow** adds the current build to the item's allowed list; the next rebuild asks again.
+
+### Why released versions don't show it
+Release builds are signed with your **Developer ID** (required anyway for notarization and distribution),
+which gives the app a **stable identity across every version and update**.
+- **Data protection keychain (preferred):** signed builds use macOS's newer, app-scoped keychain (the same
+  model as iOS). Items belong to the app's signing identity, and macOS never shows a permission dialog for
+  them. This needs the build to carry an application identifier / keychain access group (part of the
+  signing setup); NotchDeck detects whether it's available at launch.
+- **Fallback, also prompt-free:** if a build can't use the data protection keychain, NotchDeck uses the
+  classic login keychain. Because the Developer ID signature is stable, every version is recognized as the
+  app that created the item, so there's still no prompt, including after updates.
+- **First launch:** NotchDeck creates the item itself, so there's nothing to ask about.
+
+### What was changed (2026-11-25)
+- **Before:** Phases 2–4 kept one Keychain item **per secret** (license, Claude key, Gemini key) and re-read
+  them **every time they were used** (each chat message, each model refresh, the hourly license check).
+  On a development build that meant *several* prompts per launch, and repeated prompts after "Allow"
+  (instead of "Always Allow").
+- **Now:**
+  - all secrets are in a single item, read once per launch (at most **one** prompt per rebuild in
+    development, zero in release);
+  - the existing separate items were merged into it automatically and then deleted;
+  - signed builds use the data protection keychain;
+  - the item is labelled plainly "NotchDeck" ("NotchDeck license and API keys" in Keychain Access).
+  - Code: `SecretsVault` and `SystemKeychain` in `NotchDeck/Core/Licensing/KeychainHelper.swift`; tests in
+    `SecretsVaultTests`.
+
+### What to do while developing
+- **When the prompt appears after a rebuild:** enter your Mac password and choose **Always Allow**. It won't
+  ask again until the next rebuild.
+- **To remove the prompt from development entirely (recommended):** Xcode → Settings → Accounts → add your
+  Apple ID; then target **NotchDeck** → Signing & Capabilities → **Team** → choose it (a free personal team
+  works). Builds then have a stable signature and stop prompting.
+- **For quick UI work without the Keychain at all:** launch with
+  `-notchdeck.debug.ephemeralSecureStore YES`. Secrets stay in memory only, so API keys and the trial
+  record are forgotten when the app quits.
+
+### Before shipping: confirm users won't see it
+1. Build the release with your **Developer ID** signing.
+2. Install it on a test Mac or a fresh macOS user account and run it: enter an API key, quit, relaunch,
+   send a chat message. **No Keychain dialog should appear at any point.**
+3. Check the log: `log show --last 5m --predicate 'subsystem == "com.notchdeck.NotchDeck" AND category == "Keychain"'`.
+   The line "Data protection keychain unavailable" means that build fell back to the login keychain:
+   still prompt-free with a stable signature, but worth fixing in the signing setup.
+4. Install an update over it (same Developer ID) and repeat step 2.
+- **Only exception to watch for:** if pre-release builds were ever given to people **unsigned/ad-hoc**,
+  those people could see the prompt once when a signed build first takes over the item. Distribute
+  betas signed with Developer ID to avoid it.
+
+---
+
+## 4. Things to consider ⚠️
+
+### Signing and distribution
+- **Keychain permission prompts are development-only:** see §3 for the full explanation.
 - **Hardened runtime isn't applied to ad-hoc builds** (`codesign -dv` shows only `adhoc`). Notarization
   requires it, so check your Developer ID release build shows the `runtime` flag.
 - **Distribution needs a Developer ID certificate + notarization** for the `.dmg`/`.zip` (spec §1). Not set up yet.
@@ -175,7 +265,7 @@ Debug builds talk to that server. With it running, in Settings → License:
 ### Media module
 - **Only Music and Spotify for now.** The spec's fallback for browser/system audio (`mediaremote-adapter`)
   is **not implemented** yet. Apple locked down the private MediaRemote framework in macOS 15.4+, so that
-  needs a separate helper; it's tracked in §5.
+  needs a separate helper; it's tracked in §6.
 - **The visualizer is procedural**, not real audio levels (that needs a system audio tap + extra permission).
   It animates only while playing.
 - **Event-driven, not polling.** Music/Spotify post a notification on every change; NotchDeck re-reads then,
@@ -218,6 +308,38 @@ Debug builds talk to that server. With it running, in Settings → License:
   rows; occurrences now get unique IDs. The first build also capped the notch list at 3 rows and 36 hours.
 - **Reminders aren't integrated yet** (spec §3.6 mentions them; Phase 3 scope was the Calendar banner).
 
+### AI Chat
+- **API calls are BYOK** (your keys, your bill). Keys live only in the Keychain. With the
+  `-notchdeck.debug.ephemeralSecureStore YES` launch flag they're kept **in memory only** and vanish on
+  relaunch, so launch without it when testing chat.
+- **Claude:** raw HTTPS to `https://api.anthropic.com/v1/messages` (Swift has no official Anthropic SDK),
+  `anthropic-version: 2026-10-21`, streaming SSE. **Per-model request shaping** from the Models API
+  capabilities: adaptive thinking (summarized) only where `capabilities.thinking.types.adaptive.supported`
+  (older models such as Haiku 4.5 would 400); `max_tokens` = min(32000, the model's limit). Hand-added IDs
+  are guessed by family, and if one rejects thinking NotchDeck retries without it.
+- **Model lists:** fetched at launch and when you save a key; cached in
+  `~/Library/Application Support/NotchDeck/model-catalog.json`. Gemini's list is filtered to text-chat models
+  (image "Nano Banana", Lyria music, TTS, transcription, embeddings, computer-use / Antigravity /
+  Deep Research agents are hidden) and sorted newest first.
+- **Refusal fallbacks are ON for Opus 5.5, Sonnet 5.5, Opus 5, Fable 5.2 and Fable 5.1** (`anthropic-beta: server-side-fallback-2026-07-01`,
+  `fallbacks: "default"`): if Claude's safety classifiers decline, the API re-runs the request on a suitable
+  model in the same stream, and the reply shows "Continued with …". If your account doesn't have that beta,
+  NotchDeck retries once without it and stops sending it for the session. A refusal the whole chain declines
+  shows "Claude declined this request" and discards the partial text. Haiku 5.5 has no server-side fallback.
+- **History sends assistant text only** (no thinking blocks), which keeps every request valid across model
+  switches and fallbacks; the model doesn't see its earlier private reasoning.
+- **Gemini:** `streamGenerateContent?alt=sse`.
+- **Custom endpoint:** any OpenAI-compatible `/chat/completions` streaming server (local LLMs, proxies); PDFs
+  aren't sent to it.
+- **Attachments:** images downscaled to 1568 px long edge (PNG, JPEG if >4.5 MB); PDFs ≤ 20 MB; UTF-8 text
+  ≤ 400 KB. Anything bigger or binary is refused with a message, never silently truncated.
+- **Screen selection** uses macOS `screencapture -i`; the first use asks for **Screen Recording** permission
+  (also reset per session; `tccutil` may not be allowed to reset that one, and that's logged).
+- **Chats are saved** as JSON in `~/Library/Application Support/NotchDeck/Chats/` (attachments included).
+- **Tall layout:** the AI Chat tab expands the notch taller (Compact 300 / Medium 360 / Large 440 pt of content,
+  capped at 70% of screen height). The window grows immediately and shrinks after the close animation, so no
+  invisible strip blocks clicks.
+
 ### Updates (Sparkle)
 - **Sparkle stays dormant** until `SPARKLE_FEED_URL` (https) and `SPARKLE_PUBLIC_ED_KEY` are set in
   `Config/NotchDeck.xcconfig`. Generate the EdDSA key with Sparkle's `generate_keys` tool (it stores the
@@ -242,7 +364,7 @@ Debug builds talk to that server. With it running, in Settings → License:
 
 ---
 
-## 4. Secrets and configuration
+## 5. Secrets and configuration
 
 | File | Committed? | Contains |
 |---|---|---|
@@ -250,14 +372,14 @@ Debug builds talk to that server. With it running, in Settings → License:
 | `.env.example` | ✅ | The same keys, blank, as a template |
 | `Config/NotchDeck.xcconfig` | ✅ | License API URL, **public** keys, purchase URL, Sparkle feed/key |
 | `Config/Info.plist` | ✅ | Pulls the xcconfig values into the app's Info.plist |
-| Keychain (`com.notchdeck.NotchDeck`) | — | `license.vault` (trial + receipt), `api.anthropic`, `api.gemini` |
+| Keychain (`com.notchdeck.NotchDeck` / `secrets`) | — | One item holding the trial/license record and API keys |
 
 Never commit `.env`. The app binary contains only public keys; the master key and signing private key
 exist only in `.env` and Cloudflare secrets.
 
 ---
 
-## 5. Features
+## 6. Features
 
 ### Done
 - **Notch window** (Phase 1): borderless non-activating panel aligned from `NSScreen.auxiliaryTopLeftArea/RightArea`;
@@ -273,6 +395,9 @@ exist only in `.env` and Cloudflare secrets.
   scrub bar, transport controls, output device picker, bars/wave visualizer, collapsed live pill.
 - **File Tray** (Phase 3): drop zone (files, images, text, links), thumbnails + size badges, drag out,
   AirDrop, zip, remove/clear, persistence across launches, drag-a-file-to-open-the-notch.
+- **AI Chat** (Phase 4): Claude (Opus/Sonnet/Haiku 5.5), Gemini, custom OpenAI-compatible endpoint; streaming
+  Markdown with highlighted code + copy buttons; thinking summaries; history + new chat; attachments (files,
+  ⌘V, screen selection, File Tray); ⌥Space focused-input shortcut; refusal fallbacks.
 - **Calendar** (Phase 3): EventKit, upcoming events with Join buttons, meeting-link parser
   (Zoom, Meet, Teams, Webex), "In 12m: …" collapsed banner.
 
@@ -280,14 +405,13 @@ exist only in `.env` and Cloudflare secrets.
 - Media fallback for browsers/system audio (`mediaremote-adapter`), real audio-level visualizer (optional).
 - Reminders (EventKit) alongside Calendar.
 - Multi-item drag-out from the tray.
-- Phase 4: AI Chat (SSE streaming, Markdown/code rendering, history, attachments, screen capture).
 - Phase 5: local hook server, `~/.claude/settings.json` installer, Approve/Deny card.
 - Phase 6: battery/Bluetooth/Downloads Live Activities, Pomodoro, To-Dos, Clipboard history, Camera Mirror.
 - Release: Developer ID signing, notarization, DMG, production license keys, deployed proxy, Sparkle appcast.
 
 ---
 
-## 6. Project layout
+## 7. Project layout
 
 ```
 NotchDeck/                     app sources (synchronized folder)
@@ -311,9 +435,12 @@ Scripts/                       license-keygen.swift
 
 ---
 
-## 7. Next steps
+## 8. Next steps
 
-1. **Hands-on check of Phase 3** (I couldn't see the screen while building it):
+1. **Hands-on check of Phase 4 (AI Chat):** add your Claude key (Settings → AI & Agents), press ⌥Space, send a
+   message; try a code question (highlighting, Copy Code), an image via ⌘V and via screen capture, History,
+   switching to Haiku, and Esc to close. Phase 3 checks below are all ✅.
+2. **Phase 3 checks:**
    - Play something in Spotify/Music → collapsed wings show art + visualizer; open the notch → controls, scrub, output picker.
    - ✅ Media (Spotify + Music controls) and ✅ Join on a Zoom event: confirmed by you.
    - ✅ Drag a file onto the notch → it opens into the tray and stores it (confirmed after the AppKit rebuild).
@@ -322,13 +449,13 @@ Scripts/                       license-keygen.swift
    - Quit and reopen NotchDeck → it asks again for Spotify/Music control and Calendars.
    - Calendar: choose calendars in Settings → Modules; check previously missing events now appear; within 15 min
      of a meeting the collapsed banner appears.
-2. Phase 4: embedded AI Chat (Claude + Gemini streaming).
-3. Pick a Development Team in Xcode, which ends the Keychain and Automation re-prompts.
-4. Before beta: production license keypair, deploy the proxy, set the master key secret, Sparkle keys + appcast.
+3. Phase 5: Claude Code agent hooks (local approval server, hook installer, Approve/Deny card).
+4. Pick a Development Team in Xcode, which ends the Keychain and Automation re-prompts.
+5. Before beta: production license keypair, deploy the proxy, set the master key secret, Sparkle keys + appcast.
 
 ---
 
-## 8. Log
+## 9. Log
 
 - **2026-11-25 — Phase 1.** Xcode project (hand-written, objectVersion 77), notch window shell, both themes,
   geometry unit tests using real 14" MacBook Pro values (notch 185×32 pt at x 663.5–848.5).
@@ -344,6 +471,15 @@ Scripts/                       license-keygen.swift
   accepts drags while collapsed; more reliable file-URL loading). Calendar: per-calendar selection, range
   picker, all-day events, day-grouped scrolling list, 5-minute remote re-sync + wake + manual refresh,
   unique IDs for recurring occurrences. 77 tests (incl. real NSItemProvider drops).
+- **2026-11-25 — Phase 4 feedback round.** User confirmed Claude chat works. Added live model lists per
+  provider (14 Claude / 25 Gemini models on this account) + hand-added IDs, per-model request shaping,
+  shortcut recorder in the AI pane with press-again-to-close. Keychain reworked after the user reported
+  repeated "confidential information" prompts: one cached item, data protection keychain when signed.
+  112 tests.
+- **2026-11-25 — Phase 4 built.** AI Chat module (Claude/Gemini/custom clients over raw HTTP SSE, Markdown +
+  highlighter, attachments incl. screen capture, history, tall layout, keyboard focus in the non-activating
+  panel, ⌥Space). Claude API details checked against the bundled Claude API reference (model IDs, version
+  header, streaming events, refusal fallbacks). 103 tests incl. a mock-client streaming loop.
 - **2026-11-25 — Phase 3 confirmed.** Media (Spotify + Music, incl. per-session Automation prompt), File Tray
   drop, and Calendar all confirmed working by the user. Committed.
 - **2026-11-25 — Drop rebuild + per-session permissions.** User: drop still not working; wants permissions

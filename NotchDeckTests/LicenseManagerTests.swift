@@ -253,3 +253,52 @@ struct ActivationTests {
         #expect(m.lastError == "License activation isn't configured in this build.")
     }
 }
+
+// MARK: - Secrets vault
+
+/// In-memory stand-in for Keychain items that counts reads (each read of a real item can prompt).
+final class CountingKeychainItems: KeychainItemStore {
+    var items: [String: Data] = [:]
+    var reads: [String] = []
+    func read(_ account: String) throws -> Data? { reads.append(account); return items[account] }
+    func write(_ data: Data, _ account: String) throws { items[account] = data }
+    func delete(_ account: String) throws { items[account] = nil }
+}
+
+struct SecretsVaultTests {
+    @Test func allSecretsLiveInOneItemReadOncePerLaunch() throws {
+        let items = CountingKeychainItems()
+        let vault = SecretsVault(items: items)
+        try vault.setData(Data("vault".utf8), for: "license.vault")
+        try vault.setData(Data("sk-ant".utf8), for: "api.anthropic")
+        #expect(Array(items.items.keys) == [SecretsVault.account])
+
+        let relaunched = SecretsVault(items: items)
+        items.reads = []
+        for _ in 0..<5 {
+            _ = try relaunched.data(for: "api.anthropic")
+            _ = relaunched.contains("license.vault")
+        }
+        #expect(items.reads == [SecretsVault.account]) // one Keychain read, however often secrets are used
+        #expect(try relaunched.data(for: "api.anthropic") == Data("sk-ant".utf8))
+    }
+
+    @Test func migratesPerSecretItemsFromEarlierBuildsOnce() throws {
+        let items = CountingKeychainItems()
+        items.items = ["license.vault": Data("trial".utf8), "api.gemini": Data("AIza".utf8)]
+        let vault = SecretsVault(items: items, legacyAccounts: ["license.vault", "api.anthropic", "api.gemini"])
+
+        #expect(try vault.data(for: "license.vault") == Data("trial".utf8))
+        #expect(vault.contains("api.gemini"))
+        #expect(!vault.contains("api.anthropic"))
+        #expect(Array(items.items.keys) == [SecretsVault.account]) // old items removed after merging
+    }
+
+    @Test func removingASecretPersists() throws {
+        let items = CountingKeychainItems()
+        let vault = SecretsVault(items: items)
+        try vault.setData(Data("x".utf8), for: "api.gemini")
+        try vault.removeData(for: "api.gemini")
+        #expect(!SecretsVault(items: items).contains("api.gemini"))
+    }
+}

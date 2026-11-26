@@ -31,6 +31,8 @@ struct AppServices {
     let fileTray: FileTrayStore
     let calendar: CalendarStore
     let liveActivity: LiveActivityCoordinator
+    let chat: ChatStore
+    let modelCatalog: ModelCatalog
 }
 
 extension View {
@@ -45,6 +47,8 @@ extension View {
             .environment(services.fileTray)
             .environment(services.calendar)
             .environment(services.liveActivity)
+            .environment(services.chat)
+            .environment(services.modelCatalog)
             .environment(\.settingsOpener, services.settingsOpener)
     }
 }
@@ -63,22 +67,29 @@ final class DependencyContainer {
 
     init(defaults: UserDefaults = .standard, secureStore: SecureStore? = nil) {
         let settings = SettingsStore(defaults: defaults)
-        let store = secureStore ?? (settings.usesEphemeralSecureStore ? InMemorySecureStore() : KeychainHelper())
+        let store = secureStore ?? (settings.usesEphemeralSecureStore ? InMemorySecureStore() : SecretsVault(
+            items: SystemKeychain(),
+            legacyAccounts: [LicenseManager.vaultAccount, "api.anthropic", "api.gemini", "api.openAICompatible"]
+        ))
         let license = LicenseManager.live(store: store)
         let nowPlaying = NowPlayingStore()
         let calendar = CalendarStore(settings: settings)
+        let apiKeys = APIKeyStore(store: store)
+        let catalog = ModelCatalog(settings: settings, apiKeys: apiKeys)
         services = AppServices(
             settings: settings,
             themeEngine: ThemeEngine(settings: settings),
             licenseManager: license,
             updateManager: UpdateManager(),
             launchAtLogin: LaunchAtLoginService(),
-            apiKeys: APIKeyStore(store: store),
+            apiKeys: apiKeys,
             settingsOpener: SettingsOpener(),
             nowPlaying: nowPlaying,
             fileTray: FileTrayStore(),
             calendar: calendar,
-            liveActivity: LiveActivityCoordinator(media: nowPlaying, calendar: calendar, settings: settings, license: license)
+            liveActivity: LiveActivityCoordinator(media: nowPlaying, calendar: calendar, settings: settings, license: license),
+            chat: ChatStore(settings: settings, apiKeys: apiKeys, catalog: catalog),
+            modelCatalog: catalog
         )
         windowController = NotchWindowController(services: services)
     }
@@ -93,8 +104,12 @@ final class DependencyContainer {
             SessionPermissions.resetAll()
         }
         services.settingsOpener.handler = { [weak self] pane in self?.openSettings(pane) }
+        services.chat.onShowChat = { [weak self] in self?.windowController.focusChat() }
+        services.chat.onHideNotch = { [weak self] in self?.windowController.collapseAll() }
         services.licenseManager.start()
         services.apiKeys.refresh()
+        // Fresh model lists for every configured provider (cached lists show meanwhile).
+        Task { await services.modelCatalog.refreshAll() }
         windowController.start()
         services.updateManager.start()
         services.liveActivity.start()
@@ -147,8 +162,7 @@ final class DependencyContainer {
         case .togglePlayPause:
             services.nowPlaying.perform(.playPause)
         case .openAIChat:
-            // Opens the notch now; the chat focuses its input once it ships (Phase 4).
-            windowController.expandPinned(showing: .aiChat)
+            windowController.toggleChat()
         case .togglePomodoro, .toggleCameraMirror, .approveAgentRequest:
             break // Wired when the corresponding module ships.
         }
