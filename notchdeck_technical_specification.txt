@@ -1,0 +1,186 @@
+PROJECT SPECIFICATION: DYNAMIC MACOS NOTCH UTILITY ("NOTCHDECK")
+================================================================================
+
+1. EXECUTIVE SUMMARY & PRODUCT VISION
+--------------------------------------------------------------------------------
+Build a 100% native macOS utility application in Swift, SwiftUI, and AppKit that transforms the MacBook hardware notch (and top-center bezel on non-notch displays) into an interactive, low-latency command center.
+
+Core Design & Technical Mandates:
+* Zero-Electron / 100% Native: Built strictly with Swift 6, SwiftUI, AppKit (NSPanel, NSWindow, NSScreen), Combine/Observation (@Observable), and Core Animation (CASpringAnimation) for 120Hz ProMotion smoothness.
+* Dual Theme Architecture: Support seamless runtime switching between Classic Black (blends seamlessly into the physical OLED/Mini-LED camera housing with continuous squircle corner radii) and Frosted Glass (NSVisualEffectView .hudWindow / .popover materials with subtle specular edge strokes and ambient audio-reactive glow).
+* Multi-Monitor & Non-Notch Fallback: Detect hardware cutouts via NSScreen.auxiliaryTopLeftArea and NSScreen.auxiliaryTopRightArea. On external monitors or older Macs without a notch, render a minimal top-center pill handle that expands identically.
+* Monetization & Distribution: Direct commercial distribution (notarized .dmg / .zip outside the Mac App Store) using Sparkle 2 (via Swift Package Manager with EdDSA signatures) for auto-updates, paired with a 7-day free trial and one-time license key activation validated locally/remotely and stored securely in macOS Keychain.
+
+
+2. SYSTEM ARCHITECTURE & WINDOW MANAGEMENT
+--------------------------------------------------------------------------------
+
+2.1 Directory & Module Structure
+Organize the Xcode / Swift Package Manager project into clean, decoupled feature modules:
+
+NotchDeck/
+├── App/
+│   ├── NotchDeckApp.swift              # App lifecycle, LSUIElement=true (no Dock icon)
+│   ├── AppDelegate.swift               # Menu bar status item, global hotkeys, Sparkle updater
+│   └── DependencyContainer.swift       # Shared services & @Observable state stores
+├── Core/
+│   ├── Windowing/
+│   │   ├── NotchWindowController.swift # Multi-screen NSPanel lifecycle & geometry tracking
+│   │   ├── NotchPanel.swift            # Custom non-activating NSPanel subclass
+│   │   └── NotchGeometry.swift         # Cutout calculation & spring animation metrics
+│   ├── Theme/
+│   │   ├── ThemeEngine.swift           # Classic Black vs. Frosted Glass materials & tokens
+│   │   └── NotchMaskShape.swift        # Continuous curvature squircle / ear-curve Shape
+│   ├── Licensing/
+│   │   ├── LicenseManager.swift        # 7-day trial tracker & license key validation
+│   │   └── KeychainHelper.swift        # Secure storage for trial start date & activation token
+│   ├── Shortcuts/
+│   │   └── ShortcutManager.swift         # Global shortcut registration (KeyboardShortcuts SPM)
+│   └── Persistence/
+│       └── SettingsStore.swift         # @AppStorage & JSON persistence for user preferences
+├── Modules/
+│   ├── MediaPlayer/                    # Now Playing (Apple Music, Spotify, MediaRemote bridge)
+│   ├── FileTray/                       # Drag-and-drop shelf, temporary staging, NSSharingService (AirDrop)
+│   ├── AIChat/                         # Embedded streaming LLM chatbot (Claude & Gemini APIs)
+│   ├── AgentHooks/                     # Local HTTP/Unix socket server for Claude Code & CLI approvals
+│   ├── CalendarReminders/              # EventKit integration for upcoming meetings & quick join
+│   ├── LiveActivities/                 # Battery, Bluetooth/AirPods, Downloads folder watcher
+│   └── QuickUtilities/                 # Pomodoro timer, To-do list, Clipboard history, Camera mirror
+└── UI/
+    ├── NotchRootView.swift             # Collapsed pill, hover/peek state, expanded tabs
+    ├── Components/                     # Reusable glass cards, audio visualizer, markdown renderer
+    └── Settings/                       # Multi-pane Settings window (General, Appearance, Shortcuts, AI, License)
+
+2.2 Window Physics & Event Handling (NotchPanel)
+* Window Subclass: Subclass NSPanel with styleMask: [.borderless, .nonactivatingPanel].
+* Window Level & Behavior:
+  - Set level = .statusBar + 1 (or .screenSaver when hovered/expanded so it sits above menu bar items without stealing focus from active fullscreen apps).
+  - Set collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle].
+  - Set isOpaque = false, backgroundColor = .clear, and hasShadow = true (enabled dynamically only when expanded).
+* Hit-Testing & Focus Rules:
+  - In Collapsed / Idle state, ignore mouse clicks outside the exact notch bounding rect (ignoresMouseEvents toggled dynamically via a global NSEvent mouse-tracking monitor or NSTrackingArea).
+  - When the AI Chat or To-Do input is focused, temporarily allow key window status (canBecomeKey = true) so the user can type seamlessly, then resign key status immediately upon collapse (Escape key or clicking outside).
+* Hover & Drag Triggers:
+  - Hover Intent: Require a configurable dwell delay (default 150ms) over the notch region before expanding to prevent accidental triggers when moving the cursor toward menu bar items.
+  - Drag Detection: Monitor NSEvent .leftMouseDragged globally; if the user drags a file while holding the mouse button down, automatically expand the notch into the File Tray drop zone so files can be dropped in a single fluid gesture.
+
+
+3. CORE FEATURE SPECIFICATIONS (V1)
+--------------------------------------------------------------------------------
+
+3.1 Dual-Theme Visual System (ThemeEngine)
+1. Classic Black Theme:
+   - Pure #000000 fill matching the physical MacBook display bezel.
+   - Top corners curve outward ("ears") into the menu bar using a custom SwiftUI Path so the expanded black region looks physically extruded from the hardware notch.
+   - Bottom corners use continuous RoundedRectangle(cornerRadius: 24, style: .continuous).
+2. Frosted Glass Theme:
+   - Backed by NSVisualEffectView (material: .hudWindow, blendingMode: .behindWindow, state: .active).
+   - 1pt inner border stroke using a vertical linear gradient (white.opacity(0.28) at top fading to white.opacity(0.06) at bottom).
+   - Subtle ambient glow behind album artwork or active Live Activities.
+
+3.2 Embedded AI Chat Box (Claude & Gemini Parity)
+Provide an interactive, multi-turn AI assistant directly inside the expanded notch, matching the conversational UX of Claude and Gemini:
+* Providers & BYOK / Proxy Support:
+  - Native streaming URLSession SSE (Server-Sent Events) clients for Anthropic Messages API (Claude) and Google Gemini API (streamGenerateContent?alt=sse), plus an optional custom OpenAI-compatible endpoint.
+  - Store API keys securely in the macOS Keychain via KeychainHelper.
+* Chat UX & Capabilities:
+  - Model Switcher: Quick pill selector in the chat header (e.g., Claude Sonnet / Haiku, Gemini Flash / Pro).
+  - Context Attachments: Drag files directly from the Notch File Tray into the chat input, attach current clipboard text/image (Cmd+V), or capture a quick screen selection (screencapture -i) to ask questions about what's on screen.
+  - Rich Streaming Output: Render incremental Markdown tokens smoothly with syntax-highlighted code blocks, one-click "Copy Code" / "Copy Response" buttons, conversation history drawer, and "New Chat" reset.
+  - Instant Summon: Dedicated global keyboard shortcut (default Option + Space or Cmd + Shift + N) opens the notch directly into the focused AI Chat text field.
+
+3.3 Now Playing & Media Controls
+* Media Detection:
+  - Integrate AppleScript / ScriptingBridge (Music.app, Spotify.app) for rock-solid metadata, playback position, play/pause, next/prev, and scrubbing without private-entitlement breakage on modern macOS, plus fallback mediaremote-adapter support for browser/system audio.
+* UI States:
+  - Collapsed Live Pill: Mini album art thumbnail on the left of the hardware notch; live 4-bar Core Animation / SwiftUI TimelineView audio visualizer on the right.
+  - Expanded View: High-res album artwork with dynamic color extraction, interactive scrub bar, playback controls, and output device picker.
+
+3.4 Drag-and-Drop File Tray & AirDrop Shelf
+* Drop Zone: Accept NSFilenamesPboardType, public.file-url, images, and raw text drops via SwiftUI .onDrop / AppKit NSDraggingDestination.
+* Staging Behavior: Store references (security-scoped bookmarks or temporary staging copies in ~/Library/Application Support/NotchDeck/Tray/) with file thumbnails, size badges, and quick actions:
+  - Drag Out: Support NSItemProvider / NSDraggingSession so users can drag files out of the notch into Slack, Finder, Mail, or browser upload fields.
+  - One-Click AirDrop: Trigger NSSharingService(named: .sendViaAirDrop)?.perform(withItems: selectedURLs) directly from a shelf button.
+  - Batch Zip & Clear: Compress multiple staged files into a single .zip archive or clear individual/all items.
+
+3.5 AI Agent Approval Hooks (Claude Code & CLI)
+Turn the notch into a non-intrusive heads-up display and approval gate for terminal AI agents:
+* Local IPC Server: Run a lightweight local HTTP server (Network.framework NWListener bound strictly to 127.0.0.1 on a configurable port, e.g., 127.0.0.1:49152).
+* Claude Code Integration:
+  - Provide a one-click installer in Settings that registers PreToolUse / PermissionRequest and Stop hooks in ~/.claude/settings.json.
+  - When Claude Code requests tool execution permission (e.g., Bash, Edit, Write), the hook POSTs the JSON payload (tool_name, tool_input, cwd) to the local endpoint and blocks awaiting a response.
+  - The notch pops open with a high-contrast Agent Approval Card showing the exact command/diff and Approve (Cmd+Enter) / Deny (Esc) buttons, returning the decision JSON (allow or deny) immediately to Claude Code.
+  - When a long-running agent task finishes (Stop hook), trigger a subtle notch chime and completion pulse.
+
+3.6 Calendar Events & Reminders
+* EventKit Integration: Request EKEventStore access for Calendars and Reminders.
+* Smart Upcoming Banner: Display the next upcoming event ("In 12m: Design Sync") in the collapsed pill; parse zoom.us, meet.google.com, teams.microsoft.com, and webex.com URLs from event notes/locations to show a one-click "Join Meeting" button.
+
+3.7 Live Activities (System Telemetry)
+* Battery & Charging: Listen to IOPowerSources (IOPSNotificationCreateRunLoopSource) to flash a charging/low-battery pill animation with percentage and wattage/time remaining.
+* Bluetooth / AirPods: Monitor IOBluetooth device connection notifications to display a native AirPods/headphone connection toast with battery level.
+* Downloads Watcher: Use DispatchSource.makeFileSystemObjectSource on ~/Downloads to show newly downloaded files as a transient Live Activity that can be immediately dragged or AirDropped.
+
+3.8 Quick Utilities
+* Pomodoro Focus Timer: Configurable work/break intervals with a persistent countdown pill flanking the notch and completion alert.
+* Quick To-Dos: Lightweight local checklist persisted in SwiftData / JSON.
+* Clipboard History: Poll NSPasteboard.general.changeCount (ignoring concealed/password manager types org.nspasteboard.ConcealedType) to keep the last 25 text/image clips one click away.
+* Camera Mirror: AVCaptureSession preview layer for quick webcam/appearance checks before video calls.
+
+
+4. LICENSING, 7-DAY FREE TRIAL & SPARKLE UPDATES
+--------------------------------------------------------------------------------
+
+4.1 Trial & One-Time Activation Architecture
+* 7-Day Free Trial:
+  - On first launch, record firstLaunchTimestamp (and a cryptographic HMAC signature tied to the hardware UUID via IOPlatformUUID) in the macOS Keychain so deleting UserDefaults cannot trivially reset the trial.
+  - Compute remaining days (7 - elapsedDays). Display a subtle, non-blocking trial badge in Settings (e.g., "5 days left in free trial").
+  - When elapsedDays > 7 and isLicensed == false, lock expanded modules behind a clean Activation Gate inside the notch/settings while keeping basic menu bar settings accessible.
+* One-Time License Key Validation:
+  - Implement an activation UI accepting an authentication/license key (e.g., XXXX-XXXX-XXXX-XXXX).
+  - Support standard merchant API validation (e.g., LemonSqueezy / Gumroad / Polar /v1/licenses/activate endpoint) binding the key to the Mac's IOPlatformUUID instance ID, plus offline cryptographic signature verification (Ed25519 signed license payloads) so the app works reliably offline after initial activation.
+  - Persist the signed activation receipt in macOS Keychain; include a "Deactivate This Mac" button in Settings so users can transfer their lifetime license to a new machine.
+
+4.2 Auto-Updates via Sparkle 2
+* Add https://github.com/sparkle-project/Sparkle via Swift Package Manager.
+* Initialize SPUStandardUpdaterController in AppDelegate.
+* Configure SUFeedURL (pointing to appcast.xml) and SUPublicEDKey in Info.plist, and wire a "Check for Updates..." action into both the menu bar menu and the Settings -> About pane.
+
+
+5. COMPREHENSIVE SETTINGS & SHORTCUT CUSTOMIZATION
+--------------------------------------------------------------------------------
+Build a native SwiftUI Settings scene (Settings { SettingsView() }) organized into 6 clean tabs:
+
+1. General: Launch at login (SMAppService.mainApp), show/hide menu bar icon, active display selection (Built-in Notch Display only vs. Follow Active Screen vs. All Displays), hover open delay slider (0ms - 500ms), auto-collapse behavior.
+2. Appearance: Theme toggle (Classic Black vs. Frosted Glass), expanded notch width/height presets, audio visualizer style & accent color, hide collapsed pill when idle option.
+3. Modules: Toggle individual modules on/off (Media, File Tray, AI Chat, Agent Hooks, Calendar, Live Activities, Pomodoro, To-Dos, Clipboard, Mirror) and reorder tab bar order.
+4. Shortcuts: Integrate sindresorhus/KeyboardShortcuts with native KeyboardShortcuts.Recorder controls for:
+   - Toggle Notch Expand/Collapse
+   - Open AI Chat Directly (Focused Input)
+   - Toggle Play / Pause Media
+   - Open File Tray / Paste to Tray
+   - Start / Pause Pomodoro Timer
+   - Toggle Camera Mirror
+   - Approve Pending AI Agent Request
+5. AI & Agents: API key fields (stored in Keychain) for Claude & Gemini, default model selector, custom system prompt for the notch chatbot, and one-click "Install Claude Code Hook" button with local server port status indicator.
+6. License & Updates: Trial countdown / active license status, license key input & activation/deactivation controls, Sparkle "Check for Updates" button, and version info.
+
+
+6. PHASED EXECUTION ROADMAP FOR CLAUDE CODE / ANTIGRAVITY
+--------------------------------------------------------------------------------
+Execute this build incrementally, verifying compilation (xcodebuild / swift build) and runtime behavior at each milestone:
+
+* Phase 1 - Core Window Shell & Theme Engine:
+  Set up the Xcode project (LSUIElement = YES), NotchPanel, NotchGeometry (reading NSScreen.auxiliaryTopLeftArea / auxiliaryTopRightArea), hover/click expansion animations, and both Classic Black and Frosted Glass themes.
+* Phase 2 - Settings Architecture, Shortcuts & Licensing:
+  Build SettingsStore, the 6-tab SettingsView, KeyboardShortcuts integration, Keychain-backed 7-day trial + license key activation gate (LicenseManager), and Sparkle 2 updater wiring.
+* Phase 3 - Standard MVP Modules (Media, File Tray, Calendar):
+  Implement Now Playing controls + visualizer, Drag-and-Drop File Tray with drag-out & AirDrop (NSSharingService), and EventKit Calendar upcoming event banner + meeting link parser.
+* Phase 4 - Embedded AI Chat Box (Claude & Gemini):
+  Build the streaming SSE chat client, Keychain API key management, Markdown + code block renderer, screenshot/tray file attachment support, and global shortcut focus flow.
+* Phase 5 - AI Agent Hooks (Claude Code Local Server):
+  Build the 127.0.0.1 NWListener HTTP server, ~/.claude/settings.json hook installer, and interactive Approve/Deny notch overlay.
+* Phase 6 - Live Activities & Quick Utilities:
+  Add Battery/Bluetooth/Downloads watchers, Pomodoro timer, To-do list, Clipboard manager, and AVCaptureSession Camera Mirror.
+
+
