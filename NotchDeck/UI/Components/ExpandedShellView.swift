@@ -16,6 +16,9 @@ struct ExpandedShellView: View {
         let ear = geometry.metrics(for: .expanded).earRadius
         let modules = license.isUnlocked ? settings.enabledModules : []
         let selected = Self.resolvedSelection(model.selectedModule, enabled: modules)
+        // Content-fitted modules (System) are laid out at their natural height and measured, so the
+        // notch hugs them with no empty space below.
+        let fitsContent = license.isUnlocked && selected.map(ExpandedLayout.contentFittedModules.contains) == true
 
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
@@ -53,6 +56,23 @@ struct ExpandedShellView: View {
         .padding(.top, geometry.topInset + 10)
         .padding(.horizontal, ear + 20)
         .padding(.bottom, 14)
+        .fixedSize(horizontal: false, vertical: fitsContent)
+        .background {
+            if fitsContent {
+                GeometryReader { proxy in
+                    Color.clear.preference(key: FittedContentHeightKey.self, value: proxy.size.height)
+                }
+            }
+        }
+        .onPreferenceChange(FittedContentHeightKey.self) { height in
+            guard fitsContent, let selected, height > 0 else { return }
+            MainActor.assumeIsolated {
+                guard abs((model.fittedBodyHeights[selected] ?? 0) - height) > 0.5 else { return }
+                withAnimation(NotchMotion.animation(to: .expanded)) {
+                    model.fittedBodyHeights[selected] = height
+                }
+            }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
@@ -70,9 +90,16 @@ struct ExpandedShellView: View {
         case .calendar: CalendarModuleView(tokens: tokens)
         case .aiChat: AIChatModuleView(tokens: tokens)
         case .agentHooks: AgentHooksModuleView(tokens: tokens)
+        case .systemMonitor: SystemMonitorModuleView(tokens: tokens)
         default: ComingSoonView(module: module, tokens: tokens)
         }
     }
+}
+
+/// Natural height of a content-fitted module's expanded content.
+private struct FittedContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 /// Clickable tab bar for the enabled modules, in the user's order (Settings → Modules).

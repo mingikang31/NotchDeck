@@ -56,13 +56,22 @@ nonisolated enum NotchSizePreset: String, CaseIterable, Identifiable, Sendable {
 /// Which expanded size to use: standard modules, or the taller conversation layout.
 nonisolated enum ExpandedLayout: Equatable, Sendable {
     case standard, tall
+    /// Exactly as tall as the module's measured content (body height, cutout strip included).
+    case fitted(CGFloat)
 
-    /// AI Chat, and Agent Hooks while an approval card is showing, need the extra height.
-    static func forModule(_ module: NotchModule?, hasPendingApproval: Bool) -> ExpandedLayout {
+    /// Modules whose notch hugs their content instead of using a fixed height.
+    static let contentFittedModules: Set<NotchModule> = [.systemMonitor]
+
+    /// AI Chat, and Agent Hooks while an approval card is showing, need the extra height; content-fitted
+    /// modules use their measured height (tall until the first measurement arrives).
+    static func forModule(_ module: NotchModule?, hasPendingApproval: Bool, fittedHeight: CGFloat? = nil) -> ExpandedLayout {
+        if let module, contentFittedModules.contains(module) {
+            return fittedHeight.map { .fitted($0) } ?? .tall
+        }
         switch module {
-        case .aiChat: .tall
-        case .agentHooks: hasPendingApproval ? .tall : .standard
-        default: .standard
+        case .aiChat: return .tall
+        case .agentHooks: return hasPendingApproval ? .tall : .standard
+        default: return .standard
         }
     }
 }
@@ -136,7 +145,23 @@ nonisolated struct NotchGeometry: Equatable, Sendable {
     let tallPanelFrame: CGRect
 
     func panelFrame(for layout: ExpandedLayout) -> CGRect {
-        layout == .tall ? tallPanelFrame : panelFrame
+        switch layout {
+        case .standard: return panelFrame
+        case .tall: return tallPanelFrame
+        case .fitted:
+            let height = (metrics(for: .expanded, layout: layout).bodySize.height + Self.shadowPadding).rounded(.up)
+            return CGRect(x: panelFrame.minX, y: screenFrame.maxY - height, width: panelFrame.width, height: height)
+        }
+    }
+
+    /// Body height for the expanded state in `layout`. Fitted heights are clamped between a small
+    /// minimum and the tall layout's height.
+    private func expandedBodyHeight(_ layout: ExpandedLayout) -> CGFloat {
+        switch layout {
+        case .standard: return expandedBodySize.height
+        case .tall: return tallExpandedBodySize.height
+        case .fitted(let height): return min(max(height.rounded(.up), cutout.height + 60), tallExpandedBodySize.height)
+        }
     }
 
     /// Height of the strip occupied by the cutout; expanded content starts below it.
@@ -171,7 +196,7 @@ nonisolated struct NotchGeometry: Equatable, Sendable {
             )
         case .expanded:
             NotchShapeMetrics(
-                bodySize: layout == .tall ? tallExpandedBodySize : expandedBodySize,
+                bodySize: CGSize(width: expandedBodySize.width, height: expandedBodyHeight(layout)),
                 earRadius: Self.expandedEarRadius,
                 bottomRadius: Self.expandedBottomRadius
             )

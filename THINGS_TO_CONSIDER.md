@@ -18,7 +18,7 @@ _Last updated: 2026-11-26, Phase 5 committed; System Monitor + Phase 6 in progre
 | 4 | Embedded AI Chat (Claude + Gemini streaming, Markdown, attachments, focus shortcut) | ✅ Done (Claude chat confirmed) |
 | 5 | Claude Code & Codex agent hooks (127.0.0.1 server, hook installer, Approve/Deny card) | ✅ Done (Claude Code confirmed; Codex believed working) |
 | 6 | Live Activities (battery, Bluetooth, Downloads), Pomodoro, To-Dos, Clipboard, Camera Mirror | 🚧 In progress |
-| + | System Monitor tab (CPU / GPU / memory, asitop/macmon-style), requested 2026-11-26 | 🚧 In progress |
+| + | System Monitor tab (CPU / GPU / memory, asitop/macmon-style), requested 2026-11-26 | ✅ Built (needs hands-on check) |
 
 ---
 
@@ -98,6 +98,19 @@ Or open `NotchDeck.xcodeproj` in Xcode and press ⌘R / ⌘U. New `.swift` files
     (chime can be turned off).
   - **Send Test Request** (per agent, same Settings section) shows a sample card through the real server; nothing runs.
   - Shortcut **Approve Pending Agent Request** (Settings → Shortcuts) approves without touching the mouse.
+- **System (CPU / GPU / memory):** the **System** tab (chip icon). Live, once per second while it's open:
+  - **CPU** % with efficiency- and performance-cluster frequencies, and a bar per core grouped by cluster;
+  - **GPU** % with frequency and watts; **Memory** used / total, swap;
+  - a 2-minute trend for each; power (CPU / GPU / Neural Engine); memory-pressure and thermal status.
+  No admin password, no helper. It samples only while the tab is visible, so it costs nothing otherwise.
+  - **Refresh rate:** 250 ms / 500 ms / 1 s (default) / 2 s / 5 s, in **Settings → Modules → System Monitor**
+    only (it was taken off the notch to reduce clutter). Applies immediately. The sparklines always span the last 2 minutes (samples are
+    placed by time, so changing the rate mid-way doesn't distort them).
+  - **CPU / GPU / memory style** (same settings group): *Cards* (the original tiles with sparklines),
+    *Meter rows* (one aligned row each: meter, value, details, mini trend), *Area graphs* (tiles with a filled
+    2-minute graph), *Minimal* (big numbers and slim meters, no boxes). Only those three top components change;
+    the per-core bars and the power/status row are the same in every style.
+  - **The notch fits the tab exactly:** no empty space below the last row, whichever style is picked.
 - **Calendar:** open the Calendar tab and click *Connect Calendar* (macOS asks for access). Shows upcoming
   events grouped by day (Today / Tomorrow / …). With more than three, **scroll** (trackpad/wheel) through them;
   a fade at the bottom and "scroll for more" in the header show there's more. Green **Join** button for Zoom, Google Meet,
@@ -404,6 +417,36 @@ which gives the app a **stable identity across every version and update**.
 - **Diff preview** shows the changed lines between `old_string` and `new_string` with 2 lines of context;
   it's a preview, not a full diff of the file.
 
+### System monitor
+- **Sources (all without admin rights):** CPU usage per core from `host_processor_info`; which cores are
+  efficiency vs performance from the device tree (`cluster-type`, on this M4: CPUs 0–5 E, 6–9 P); memory from
+  `host_statistics64` ("Memory Used" = app + wired + compressed, like Activity Monitor), swap from `vm.swapusage`,
+  pressure from `kern.memorystatus_vm_pressure_level`; GPU % from IOKit `PerformanceStatistics`; power and
+  cluster/GPU frequency from **IOReport** (the same counters macmon reads; asitop needs `sudo powermetrics`
+  instead), combined with the `pmgr` frequency tables (`voltage-states1-sram` E, `5-sram` P, `9` GPU).
+- **IOReport is a private Apple interface**, loaded at runtime with every symbol checked. If a macOS update
+  removes or changes it, power and frequencies show "—" and everything else keeps working. (Private APIs are
+  fine for a notarized direct download; they'd be a problem only for the Mac App Store.)
+- **CPU watts show "—" on this M4 / macOS 27:** IOReport's CPU energy channels read 0 even under load (probed
+  2026-11-26); GPU energy works. "—" means *unavailable*, never zero; it gets a tooltip saying why.
+- **Colors** follow the bundled data-visualization guidance: one accent blue for magnitude (usage fills,
+  sparkline "now"), a same-hue track behind meters, status colors only for memory pressure and thermal state,
+  always with an icon and label. Contrast checked on the black surface (all pass) and the dark glass surface
+  (critical red is 2.6:1 there, covered by its visible label).
+- **Overview styles** share one metric model (`OverviewMetric`: label, value, detail, 0–1 fraction, history).
+  A nil fraction (GPU unavailable) draws an empty track and a grey "—", never a 0% bar. Styles are trial
+  options while the user picks a favourite; the unpicked ones can be deleted later.
+- 250 ms sampling is noticeably busier than 1 s (four IOReport reads a second) but still only runs while the
+  tab is open. 1 s stays the default.
+- High CPU is not shown as an error (it's usage, not a fault), so cores stay blue at any load.
+- **Content-fitted height:** the System tab measures its own natural height and the notch (and its window)
+  sizes to it (`ExpandedLayout.fitted`), clamped between a small minimum and the tall layout. On this Mac:
+  window 355 pt (notch 319 + shadow) instead of 428 with the old tall layout. Before the first measurement it
+  briefly uses the tall layout, then glides to the fitted size. Other modules can opt in by adding themselves
+  to `ExpandedLayout.contentFittedModules`.
+- Debug flag to open a given tab at launch: `-notchdeck.debug.startExpanded YES -notchdeck.debug.startModule systemMonitor`
+  (any module's raw name).
+
 ### Updates (Sparkle)
 - **Sparkle stays dormant** until `SPARKLE_FEED_URL` (https) and `SPARKLE_PUBLIC_ED_KEY` are set in
   `Config/NotchDeck.xcconfig`. Generate the EdDSA key with Sparkle's `generate_keys` tool (it stores the
@@ -462,6 +505,8 @@ exist only in `.env` and Cloudflare secrets.
 - **AI Chat** (Phase 4): Claude (Opus/Sonnet/Haiku 5.5), Gemini, custom OpenAI-compatible endpoint; streaming
   Markdown with highlighted code + copy buttons; thinking summaries; history + new chat; attachments (files,
   ⌘V, screen selection, File Tray); ⌥Space focused-input shortcut; refusal fallbacks.
+- **System monitor** (added 2026-11-26): CPU (per core, E/P clusters, frequencies), GPU (%, MHz, W), memory
+  (used, swap, pressure), power, thermal, 2-minute sparklines; IOReport without root.
 - **Agent Hooks** (Phase 5): 127.0.0.1 hook server (Network.framework), one-click Claude Code **and Codex** hook
   installer / remover / updater, approval cards (command, diff, file, MCP JSON) with Approve / Deny / Always Allow and a
   queue, 2-minute hand-back, terminal-answer detection, collapsed "Approve?" pill, finished chime + pulse,
@@ -504,14 +549,16 @@ Scripts/                       license-keygen.swift
 
 ## 8. Next steps
 
-1. **Hands-on check of Phase 5 (Claude Code approvals):**
+1. **Hands-on check of the System tab:** open it while doing real work (a build, a video export) and compare with
+   Activity Monitor; check the per-core bars move and the GPU numbers react to graphics work.
+2. **Phase 5 (Claude Code approvals):**
    - Settings → AI & Agents → **Send Test Request**: a card appears; try Approve and Deny.
    - ✅ **Claude Code:** hook installed; real requests reach the notch; card keys confirmed working.
    - ✅ **Codex:** believed working by the user (2026-11-26); revisit if anything misbehaves.
    - Let a task finish → chime + "Done" pulse. Quit NotchDeck and confirm Claude Code still asks in the terminal.
-2. **Phase 4 (AI Chat):** ✅ Claude chat confirmed. Still worth trying: the new model menu (Gemini models),
+3. **Phase 4 (AI Chat):** ✅ Claude chat confirmed. Still worth trying: the new model menu (Gemini models),
    adding a model ID by hand, the open/close shortcut.
-3. **Phase 3 checks:**
+4. **Phase 3 checks:**
    - Play something in Spotify/Music → collapsed wings show art + visualizer; open the notch → controls, scrub, output picker.
    - ✅ Media (Spotify + Music controls) and ✅ Join on a Zoom event: confirmed by you.
    - ✅ Drag a file onto the notch → it opens into the tray and stores it (confirmed after the AppKit rebuild).
@@ -520,9 +567,9 @@ Scripts/                       license-keygen.swift
    - Quit and reopen NotchDeck → it asks again for Spotify/Music control and Calendars.
    - Calendar: choose calendars in Settings → Modules; check previously missing events now appear; within 15 min
      of a meeting the collapsed banner appears.
-4. Phase 6: Live Activities (battery, Bluetooth/AirPods, Downloads), Pomodoro, To-Dos, Clipboard, Camera Mirror.
-5. Pick a Development Team in Xcode, which ends the Keychain and Automation re-prompts.
-6. Before beta: production license keypair, deploy the proxy, set the master key secret, Sparkle keys + appcast.
+5. Phase 6: Live Activities (battery, Bluetooth/AirPods, Downloads), Pomodoro, To-Dos, Clipboard, Camera Mirror.
+6. Pick a Development Team in Xcode, which ends the Keychain and Automation re-prompts.
+7. Before beta: production license keypair, deploy the proxy, set the master key secret, Sparkle keys + appcast.
 
 ---
 
@@ -542,6 +589,17 @@ Scripts/                       license-keygen.swift
   accepts drags while collapsed; more reliable file-URL loading). Calendar: per-calendar selection, range
   picker, all-day events, day-grouped scrolling list, 5-minute remote re-sync + wake + manual refresh,
   unique IDs for recurring occurrences. 77 tests (incl. real NSItemProvider drops).
+- **2026-11-26 — System monitor styles.** User liked the fitted height and the E/P core bars, not the
+  CPU/GPU/memory tiles. Refresh picker moved off the notch into Settings only; added 250 ms (1 s default);
+  added four switchable styles for the top three components (Cards, Meter rows, Area graphs, Minimal) in
+  Settings → Modules → System Monitor. Core bars and power row untouched. 143 tests.
+- **2026-11-26 — System monitor feedback.** User asked for a configurable refresh rate and no empty space below
+  the monitor. Added the 500 ms / 1 s / 2 s / 5 s setting (time-based sparkline history) and a content-fitted
+  layout that measures the tab (window 428 → 355 pt on this Mac). 143 tests.
+- **2026-11-26 — System monitor.** New System tab requested by the user (asitop / macmon style). Probed this M4
+  first: device-tree core layout, IOKit GPU stats, IOReport channels and `pmgr` frequency tables all readable
+  without root; CPU energy reads 0 here, so CPU watts show "—". Live readings matched the machine's state.
+  139 tests, including a live sampling test. Phase 5 committed (`c73158e`).
 - **2026-11-26 — Codex support.** User asked for Codex alongside Claude Code. Codex hooks (checked against
   OpenAI's current Codex hooks docs) mirror Claude Code's events and decision schema but only run commands, so
   NotchDeck installs a `curl` command hook in `~/.codex/hooks.json`. Generalized installer (`HookAgent`), per-agent

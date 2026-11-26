@@ -10,6 +10,8 @@ final class NotchViewModel {
     var refreshRate: Int
     /// The module tab shown when expanded (nil = first enabled module).
     var selectedModule: NotchModule?
+    /// Measured natural body height of content-fitted modules (see `ExpandedLayout.fitted`).
+    var fittedBodyHeights: [NotchModule: CGFloat] = [:]
 
     /// Invoked when the user clicks the collapsed / peeking silhouette.
     @ObservationIgnored var onTap: () -> Void = {}

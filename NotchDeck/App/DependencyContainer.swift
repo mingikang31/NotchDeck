@@ -34,6 +34,7 @@ struct AppServices {
     let chat: ChatStore
     let modelCatalog: ModelCatalog
     let agentHooks: AgentHookStore
+    let systemMonitor: SystemMonitorStore
 }
 
 extension View {
@@ -51,6 +52,7 @@ extension View {
             .environment(services.chat)
             .environment(services.modelCatalog)
             .environment(services.agentHooks)
+            .environment(services.systemMonitor)
             .environment(\.settingsOpener, services.settingsOpener)
     }
 }
@@ -93,7 +95,8 @@ final class DependencyContainer {
             liveActivity: LiveActivityCoordinator(media: nowPlaying, calendar: calendar, settings: settings, license: license, agentHooks: agentHooks),
             chat: ChatStore(settings: settings, apiKeys: apiKeys, catalog: catalog),
             modelCatalog: catalog,
-            agentHooks: agentHooks
+            agentHooks: agentHooks,
+            systemMonitor: SystemMonitorStore(settings: settings)
         )
         windowController = NotchWindowController(services: services)
     }

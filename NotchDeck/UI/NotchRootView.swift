@@ -20,7 +20,11 @@ struct NotchRootView: View {
         let activeModule = ExpandedShellView.resolvedSelection(
             model.selectedModule, enabled: license.isUnlocked ? settings.enabledModules : []
         )
-        let layout = ExpandedLayout.forModule(activeModule, hasPendingApproval: !agentHooks.pending.isEmpty)
+        let layout = ExpandedLayout.forModule(
+            activeModule,
+            hasPendingApproval: !agentHooks.pending.isEmpty,
+            fittedHeight: activeModule.flatMap { model.fittedBodyHeights[$0] }
+        )
         let metrics = geometry.metrics(for: state, wing: wing, layout: layout)
         let expandedMetrics = geometry.metrics(for: .expanded, layout: layout)
         let tokens = themeEngine.tokens

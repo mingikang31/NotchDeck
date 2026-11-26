@@ -71,6 +71,31 @@ nonisolated enum AccentColorChoice: String, CaseIterable, Identifiable, Sendable
     }
 }
 
+/// How the System tab draws its CPU / GPU / memory overview (the three top components).
+nonisolated enum SystemOverviewStyle: String, CaseIterable, Identifiable, Sendable {
+    case cards, meterRows, areaGraphs, minimal
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .cards: "Cards"
+        case .meterRows: "Meter rows"
+        case .areaGraphs: "Area graphs"
+        case .minimal: "Minimal"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .cards: "Three tiles: value, details and a small 2-minute sparkline."
+        case .meterRows: "One aligned row per metric: a horizontal meter, the value, details and a mini trend."
+        case .areaGraphs: "Tiles with the last 2 minutes as a filled area graph under the value."
+        case .minimal: "Big numbers in three columns with a slim meter under each, no graph."
+        }
+    }
+}
+
 /// How far ahead the Calendar module looks.
 nonisolated enum CalendarRange: String, CaseIterable, Identifiable, Sendable {
     case next24Hours, next3Days, next7Days
@@ -100,7 +125,7 @@ nonisolated enum ChatProvider: String, CaseIterable, Codable, Sendable {
 
 /// Every notch module, in default tab order.
 nonisolated enum NotchModule: String, CaseIterable, Codable, Identifiable, Sendable {
-    case media, fileTray, aiChat, agentHooks, calendar, liveActivities, pomodoro, todos, clipboard, mirror
+    case media, fileTray, aiChat, agentHooks, systemMonitor, calendar, liveActivities, pomodoro, todos, clipboard, mirror
 
     var id: String { rawValue }
 
@@ -110,6 +135,7 @@ nonisolated enum NotchModule: String, CaseIterable, Codable, Identifiable, Senda
         case .fileTray: "File Tray"
         case .aiChat: "AI Chat"
         case .agentHooks: "Agent Hooks"
+        case .systemMonitor: "System"
         case .calendar: "Calendar"
         case .liveActivities: "Live Activities"
         case .pomodoro: "Pomodoro"
@@ -125,6 +151,7 @@ nonisolated enum NotchModule: String, CaseIterable, Codable, Identifiable, Senda
         case .fileTray: "tray.fill"
         case .aiChat: "sparkles"
         case .agentHooks: "terminal.fill"
+        case .systemMonitor: "cpu"
         case .calendar: "calendar"
         case .liveActivities: "bolt.fill"
         case .pomodoro: "timer"
@@ -137,7 +164,10 @@ nonisolated enum NotchModule: String, CaseIterable, Codable, Identifiable, Senda
     /// Latest roadmap phase that has shipped; modules at or below it are functional.
     static let shippedThroughPhase = 5
 
-    var isAvailable: Bool { phase <= Self.shippedThroughPhase }
+    /// Modules from a later phase that have already shipped.
+    static let shippedEarly: Set<NotchModule> = [.systemMonitor]
+
+    var isAvailable: Bool { phase <= Self.shippedThroughPhase || Self.shippedEarly.contains(self) }
 
     /// Roadmap phase in which the module ships.
     var phase: Int {
@@ -145,7 +175,7 @@ nonisolated enum NotchModule: String, CaseIterable, Codable, Identifiable, Senda
         case .media, .fileTray, .calendar: 3
         case .aiChat: 4
         case .agentHooks: 5
-        case .liveActivities, .pomodoro, .todos, .clipboard, .mirror: 6
+        case .systemMonitor, .liveActivities, .pomodoro, .todos, .clipboard, .mirror: 6
         }
     }
 }

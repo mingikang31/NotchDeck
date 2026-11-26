@@ -33,8 +33,48 @@ struct ModulesSettingsPane: View {
             }
 
             CalendarModuleSettings()
+            SystemMonitorSettings()
         }
         .padding(20)
+    }
+}
+
+/// System monitor options: sampling rate and overview style.
+private struct SystemMonitorSettings: View {
+    @Environment(SettingsStore.self) private var settings
+
+    var body: some View {
+        @Bindable var settings = settings
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Picker("Refresh every", selection: $settings.systemMonitorInterval) {
+                        ForEach(SettingsStore.systemMonitorIntervals, id: \.self) { seconds in
+                            Text(SystemMonitorModuleView.intervalLabel(seconds)).tag(seconds)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .fixedSize()
+                    Spacer()
+                    Text("Samples only while the System tab is open.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                HStack(alignment: .firstTextBaseline) {
+                    Picker("CPU / GPU / memory style", selection: $settings.systemOverviewStyle) {
+                        ForEach(SystemOverviewStyle.allCases) { Text($0.displayName).tag($0) }
+                    }
+                    .fixedSize()
+                    Text(settings.systemOverviewStyle.summary)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            .padding(6)
+        } label: {
+            Label("System Monitor", systemImage: "cpu")
+        }
     }
 }
 

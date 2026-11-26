@@ -17,7 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         if container.settings.startExpanded {
-            container.windowController.expandPinned()
+            container.windowController.expandPinned(showing: container.settings.startModule)
         }
     }
 

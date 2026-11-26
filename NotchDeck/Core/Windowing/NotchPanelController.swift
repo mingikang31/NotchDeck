@@ -69,7 +69,7 @@ final class NotchPanelController {
         // Switching to / from the AI Chat tab changes the expanded height.
         observeContinuously({ [weak self] in
             guard let self else { return "" }
-            return "\(String(describing: self.model.selectedModule))|\(self.settings.enabledModules.map(\.rawValue))|\(self.license.isUnlocked)|\(self.agentHooks.pending.isEmpty)"
+            return "\(String(describing: self.model.selectedModule))|\(self.settings.enabledModules.map(\.rawValue))|\(self.license.isUnlocked)|\(self.agentHooks.pending.isEmpty)|\(self.model.fittedBodyHeights)"
         }) { [weak self] _ in
             self?.syncPanelFrame()
         }
@@ -87,7 +87,11 @@ final class NotchPanelController {
 
     /// AI Chat (and a showing approval card) get the tall layout; everything else the standard one.
     private var layout: ExpandedLayout {
-        .forModule(activeModule, hasPendingApproval: !agentHooks.pending.isEmpty)
+        .forModule(
+            activeModule,
+            hasPendingApproval: !agentHooks.pending.isEmpty,
+            fittedHeight: activeModule.flatMap { model.fittedBodyHeights[$0] }
+        )
     }
 
     private var expandedZone: CGRect { model.geometry.interactionZone(for: .expanded, layout: layout) }

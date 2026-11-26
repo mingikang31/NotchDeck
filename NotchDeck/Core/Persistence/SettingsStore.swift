@@ -28,10 +28,13 @@ final class SettingsStore {
         static let customEndpointURL = "notchdeck.chat.customEndpointURL"
         static let handAddedModels = "notchdeck.chat.handAddedModels"
         static let agentServerPort = "notchdeck.agentServerPort"
+        static let systemMonitorInterval = "notchdeck.systemMonitor.interval"
+        static let systemOverviewStyle = "notchdeck.systemMonitor.overviewStyle"
         static let agentHookToken = "notchdeck.agentHookToken"
         static let agentChimeEnabled = "notchdeck.agentChimeEnabled"
         static let geometryOutline = "notchdeck.debug.showsGeometryOutline"
         static let startExpanded = "notchdeck.debug.startExpanded"
+        static let startModule = "notchdeck.debug.startModule"
         static let ephemeralSecureStore = "notchdeck.debug.ephemeralSecureStore"
     }
 
@@ -106,6 +109,25 @@ final class SettingsStore {
     var handAddedModels: [ChatModelRef] {
         didSet { defaults.set(handAddedModels.map(\.storageKey), forKey: Key.handAddedModels) }
     }
+    // MARK: System monitor
+
+    /// How often the System tab samples CPU / GPU / memory, in seconds.
+    static let systemMonitorIntervals: [Double] = [0.25, 0.5, 1, 2, 5]
+    var systemOverviewStyle: SystemOverviewStyle {
+        didSet { defaults.set(systemOverviewStyle.rawValue, forKey: Key.systemOverviewStyle) }
+    }
+    var systemMonitorInterval: Double {
+        didSet {
+            let snapped = Self.nearestInterval(to: systemMonitorInterval)
+            if snapped != systemMonitorInterval { systemMonitorInterval = snapped }
+            defaults.set(snapped, forKey: Key.systemMonitorInterval)
+        }
+    }
+
+    static func nearestInterval(to value: Double) -> Double {
+        systemMonitorIntervals.min { abs($0 - value) < abs($1 - value) } ?? 1
+    }
+
     /// Shared secret the installed Claude Code hook sends; requests without it are refused.
     var agentHookToken: String { didSet { defaults.set(agentHookToken, forKey: Key.agentHookToken) } }
     /// Chime when Claude Code finishes a task.
@@ -124,6 +146,8 @@ final class SettingsStore {
     var showsGeometryOutline: Bool { didSet { defaults.set(showsGeometryOutline, forKey: Key.geometryOutline) } }
     /// Launch argument only: open (pinned) right after launch.
     let startExpanded: Bool
+    /// Launch argument only: with `startExpanded`, open on this module (raw value, e.g. `systemMonitor`).
+    let startModule: NotchModule?
     /// Launch argument only (Debug): keep secrets in memory, skipping Keychain prompts.
     let usesEphemeralSecureStore: Bool
 
@@ -161,12 +185,15 @@ final class SettingsStore {
         chatSystemPrompt = defaults.string(forKey: Key.chatSystemPrompt) ?? Self.defaultSystemPrompt
         customEndpointURL = defaults.string(forKey: Key.customEndpointURL) ?? ""
         handAddedModels = (defaults.stringArray(forKey: Key.handAddedModels) ?? []).compactMap(ChatModelRef.init(storageKey:))
+        systemOverviewStyle = choice(Key.systemOverviewStyle, SystemOverviewStyle.cards)
+        systemMonitorInterval = Self.nearestInterval(to: defaults.object(forKey: Key.systemMonitorInterval) as? Double ?? 1)
         agentHookToken = defaults.string(forKey: Key.agentHookToken) ?? ""
         agentChimeEnabled = defaults.object(forKey: Key.agentChimeEnabled) as? Bool ?? true
         agentServerPort = Self.clamp(defaults.object(forKey: Key.agentServerPort) as? Int ?? Self.defaultAgentPort, to: Self.agentPortRange)
 
         showsGeometryOutline = defaults.bool(forKey: Key.geometryOutline)
         startExpanded = defaults.bool(forKey: Key.startExpanded)
+        startModule = defaults.string(forKey: Key.startModule).flatMap(NotchModule.init(rawValue:))
         #if DEBUG
         usesEphemeralSecureStore = defaults.bool(forKey: Key.ephemeralSecureStore)
         #else
