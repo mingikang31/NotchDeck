@@ -1,26 +1,35 @@
 import AppKit
+import SwiftUI
 
 /// App lifecycle and the menu bar status item.
-/// (Global hotkeys and the Sparkle updater are wired in Phase 2.)
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
-    private var container: DependencyContainer?
+    let container = DependencyContainer()
     private var statusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard !DependencyContainer.isRunningTests else { return }
 
-        let container = DependencyContainer()
-        self.container = container
-        container.windowController.start()
+        container.start()
         installStatusItem()
+
+        observeContinuously({ [weak self] in self?.container.settings.showsMenuBarIcon ?? true }) { [weak self] visible in
+            self?.statusItem?.isVisible = visible
+        }
 
         if container.settings.startExpanded {
             container.windowController.expandPinned()
         }
     }
 
+    /// Relaunching the running app (Finder, Spotlight) opens Settings, the way back in when the
+    /// menu bar icon is hidden.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        container.openSettings()
+        return true
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
-        container?.windowController.stop()
+        container.stop()
     }
 
     // MARK: Status item
@@ -28,23 +37,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = item.button {
-            button.image = NSImage(
-                systemSymbolName: "rectangle.topthird.inset.filled",
-                accessibilityDescription: "NotchDeck"
-            )
+            button.image = NSImage(systemSymbolName: "rectangle.topthird.inset.filled", accessibilityDescription: "NotchDeck")
             if button.image == nil { button.title = "ND" }
         }
         let menu = NSMenu()
         menu.delegate = self
         item.menu = menu
+        item.isVisible = container.settings.showsMenuBarIcon
         statusItem = item
     }
 
-    /// Rebuilt on every open so checkmarks always reflect current state.
+    /// Rebuilt on every open so titles and checkmarks always reflect current state.
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        guard let container else { return }
         let settings = container.settings
+        let license = container.licenseManager
+
+        if let badge = license.trialBadgeText {
+            let status = NSMenuItem(title: badge, action: nil, keyEquivalent: "")
+            status.isEnabled = false
+            menu.addItem(status)
+            if !license.isUnlocked {
+                menu.addItem(item("Enter License Key…", #selector(openLicenseSettings)))
+            }
+            menu.addItem(.separator())
+        }
 
         let toggleTitle = container.windowController.isAnyExpanded ? "Collapse Notch" : "Expand Notch"
         menu.addItem(item(toggleTitle, #selector(toggleNotch)))
@@ -59,31 +76,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(.separator())
 
-        let sizeMenu = NSMenu()
-        for preset in NotchSizePreset.allCases {
-            let entry = item(preset.displayName, #selector(selectSizePreset(_:)))
-            entry.representedObject = preset.rawValue
-            entry.state = settings.sizePreset == preset ? .on : .off
-            sizeMenu.addItem(entry)
-        }
-        let sizeItem = NSMenuItem(title: "Expanded Size", action: nil, keyEquivalent: "")
-        sizeItem.submenu = sizeMenu
-        menu.addItem(sizeItem)
-
-        let displayMenu = NSMenu()
-        for policy in DisplayPolicy.allCases {
-            let entry = item(policy.displayName, #selector(selectDisplayPolicy(_:)))
-            entry.representedObject = policy.rawValue
-            entry.state = settings.displayPolicy == policy ? .on : .off
-            displayMenu.addItem(entry)
-        }
-        let displayItem = NSMenuItem(title: "Displays", action: nil, keyEquivalent: "")
-        displayItem.submenu = displayMenu
-        menu.addItem(displayItem)
-
         let outline = item("Show Geometry Outline", #selector(toggleGeometryOutline))
         outline.state = settings.showsGeometryOutline ? .on : .off
         menu.addItem(outline)
+
+        let updates = item("Check for Updates…", #selector(checkForUpdates))
+        updates.isEnabled = container.updateManager.canCheckForUpdates
+        menu.addItem(updates)
+        menu.addItem(item("Settings…", #selector(openSettings), key: ","))
 
         menu.addItem(.separator())
         menu.addItem(item("Quit NotchDeck", #selector(quit), key: "q"))
@@ -98,32 +98,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Actions
 
     @objc private func toggleNotch() {
-        container?.windowController.toggleExpanded()
+        container.windowController.toggleExpanded()
     }
 
     @objc private func selectTheme(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let theme = NotchTheme(rawValue: raw) else { return }
-        container?.themeEngine.select(theme)
-    }
-
-    @objc private func selectSizePreset(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let preset = NotchSizePreset(rawValue: raw),
-              let container else { return }
-        container.settings.sizePreset = preset
-        container.windowController.rebuildPanels()
-    }
-
-    @objc private func selectDisplayPolicy(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let policy = DisplayPolicy(rawValue: raw),
-              let container else { return }
-        container.settings.displayPolicy = policy
-        container.windowController.rebuildPanels()
+        container.services.themeEngine.select(theme)
     }
 
     @objc private func toggleGeometryOutline() {
-        container?.settings.showsGeometryOutline.toggle()
+        container.settings.showsGeometryOutline.toggle()
+    }
+
+    @objc private func checkForUpdates() {
+        container.updateManager.checkForUpdates()
+    }
+
+    @objc private func openSettings() {
+        container.openSettings()
+    }
+
+    @objc private func openLicenseSettings() {
+        container.openSettings(.license)
     }
 
     @objc private func quit() {

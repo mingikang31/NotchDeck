@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Merged with the Xcode-generated Info.plist (GENERATE_INFOPLIST_FILE = YES). Values come from Config/NotchDeck.xcconfig. -->
+	<key>NDLicenseAPIBaseURL</key>
+	<string>$(LICENSE_API_BASE_URL)</string>
+	<key>NDLicensePublicKey</key>
+	<string>$(LICENSE_PUBLIC_KEY)</string>
+	<key>NDPurchaseURL</key>
+	<string>$(PURCHASE_URL)</string>
+	<key>SUFeedURL</key>
+	<string>$(SPARKLE_FEED_URL)</string>
+	<key>SUPublicEDKey</key>
+	<string>$(SPARKLE_PUBLIC_ED_KEY)</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Lets Debug builds reach the local license dev server on 127.0.0.1. -->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

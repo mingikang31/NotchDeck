@@ -11,6 +11,8 @@ final class NotchViewModel {
 
     /// Invoked when the user clicks the collapsed / peeking silhouette.
     @ObservationIgnored var onTap: () -> Void = {}
+    /// Invoked by expanded content that wants to close the notch (e.g. before opening Settings).
+    @ObservationIgnored var onRequestCollapse: () -> Void = {}
 
     init(geometry: NotchGeometry, displayName: String, refreshRate: Int) {
         self.geometry = geometry

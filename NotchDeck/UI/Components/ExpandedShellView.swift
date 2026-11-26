@@ -1,12 +1,15 @@
 import SwiftUI
 
-/// Phase 1 expanded content: a module tab strip placeholder, a live theme switcher,
-/// an ambient-glow preview, and a geometry readout for verifying notch alignment.
-/// Real module content replaces the body in Phases 3–6.
+/// Expanded notch content. Until the modules ship (Phases 3–6) the body is a shell with an
+/// ambient-glow preview and a geometry readout; when the trial has ended and no license is
+/// active, the body is replaced by the activation gate.
 struct ExpandedShellView: View {
     let model: NotchViewModel
 
     @Environment(ThemeEngine.self) private var themeEngine
+    @Environment(LicenseManager.self) private var license
+    @Environment(SettingsStore.self) private var settings
+    @Environment(\.settingsOpener) private var settingsOpener
 
     var body: some View {
         let tokens = themeEngine.tokens
@@ -15,25 +18,36 @@ struct ExpandedShellView: View {
 
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
-                ModuleTabStrip(tokens: tokens)
+                ModuleTabStrip(modules: license.isUnlocked ? settings.enabledModules : [], tokens: tokens)
                 Spacer(minLength: 12)
                 ThemeSwitcher()
+                IconButton(symbol: "gearshape.fill", help: "NotchDeck Settings", tokens: tokens) {
+                    model.onRequestCollapse()
+                    settingsOpener.open(.general)
+                }
             }
 
-            HStack(alignment: .center, spacing: 16) {
-                AmbientGlowPreview(intensity: tokens.glowOpacity)
+            if license.isUnlocked {
+                HStack(alignment: .center, spacing: 16) {
+                    AmbientGlowPreview(colors: settings.accentColor.gradient, intensity: tokens.glowOpacity)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("NotchDeck")
-                        .font(.system(size: 15, weight: .semibold))
-                    Text("Phase 1 · window shell & themes")
-                        .font(.system(size: 11))
-                        .foregroundStyle(tokens.secondaryText)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("NotchDeck")
+                            .font(.system(size: 15, weight: .semibold))
+                        Text(license.trialBadgeText ?? "Modules arrive in upcoming phases")
+                            .font(.system(size: 11))
+                            .foregroundStyle(tokens.secondaryText)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    GeometryReadout(model: model, tokens: tokens)
                 }
-
-                Spacer(minLength: 12)
-
-                GeometryReadout(model: model, tokens: tokens)
+            } else {
+                ActivationGateView(tokens: tokens) {
+                    model.onRequestCollapse()
+                    settingsOpener.open(.license)
+                }
             }
         }
         .foregroundStyle(tokens.primaryText)
@@ -44,34 +58,47 @@ struct ExpandedShellView: View {
     }
 }
 
-/// Placeholder tab bar for the modules that arrive in later phases.
+/// Tab bar for the enabled modules, in the user's order (Settings → Modules).
 private struct ModuleTabStrip: View {
+    let modules: [NotchModule]
     let tokens: ThemeTokens
 
-    private let modules: [(symbol: String, name: String)] = [
-        ("play.circle.fill", "Media"),
-        ("tray.fill", "File Tray"),
-        ("sparkles", "AI Chat"),
-        ("terminal.fill", "Agents"),
-        ("calendar", "Calendar"),
-        ("bolt.fill", "Live Activities"),
-    ]
-
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(modules, id: \.name) { module in
-                Image(systemName: module.symbol)
+        HStack(spacing: 3) {
+            ForEach(modules) { module in
+                Image(systemName: module.symbolName)
                     .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 26, height: 22)
+                    .frame(width: 24, height: 22)
                     .foregroundStyle(tokens.secondaryText)
                     .background(tokens.controlFill, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                    .help("\(module.name) — coming in a later phase")
+                    .help("\(module.displayName) — arrives in Phase \(module.phase)")
             }
         }
     }
 }
 
-/// Segmented control that flips the theme at runtime, live, inside the notch.
+private struct IconButton: View {
+    let symbol: String
+    let help: String
+    let tokens: ThemeTokens
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: 26, height: 24)
+                .foregroundStyle(tokens.secondaryText)
+                .background(tokens.controlFill, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
+    }
+}
+
+/// Compact segmented control that flips the theme live, inside the notch.
 struct ThemeSwitcher: View {
     @Environment(ThemeEngine.self) private var themeEngine
     @Namespace private var selection
@@ -84,10 +111,9 @@ struct ThemeSwitcher: View {
                 Button {
                     themeEngine.select(theme)
                 } label: {
-                    Label(theme.shortName, systemImage: theme.symbolName)
+                    Image(systemName: theme.symbolName)
                         .font(.system(size: 11, weight: .semibold))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
+                        .frame(width: 28, height: 20)
                         .foregroundStyle(isSelected ? tokens.primaryText : tokens.secondaryText)
                         .background {
                             if isSelected {
@@ -99,10 +125,11 @@ struct ThemeSwitcher: View {
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .help(theme.displayName)
                 .accessibilityLabel(theme.displayName)
             }
         }
-        .padding(3)
+        .padding(2)
         .background(tokens.controlFill, in: Capsule())
     }
 }
@@ -110,6 +137,7 @@ struct ThemeSwitcher: View {
 /// Artwork placeholder with the ambient glow the Now Playing module will use.
 /// The pulse stands in for audio reactivity until Phase 3 wires real levels.
 private struct AmbientGlowPreview: View {
+    let colors: [Color]
     let intensity: Double
 
     var body: some View {
@@ -128,13 +156,7 @@ private struct AmbientGlowPreview: View {
 
     private var artwork: some View {
         RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(
-                LinearGradient(
-                    colors: [Color(red: 1.0, green: 0.36, blue: 0.52), Color(red: 0.55, green: 0.32, blue: 1.0)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
+            .fill(LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing))
             .frame(width: 56, height: 56)
             .overlay {
                 Image(systemName: "waveform")

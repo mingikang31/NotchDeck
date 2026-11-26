@@ -1,0 +1,13 @@
+name = "notchdeck-license-proxy"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+[vars]
+MERCHANT = "lemonsqueezy"
+PRODUCT_ID = "notchdeck"
+# LEMONSQUEEZY_STORE_ID = ""
+# LEMONSQUEEZY_PRODUCT_ID = ""
+
+# Secrets (set with `wrangler secret put <NAME>`, never commit):
+#   SIGNING_KEY_JWK      production Ed25519 private key from `swift Scripts/license-keygen.swift`
+#   MASTER_LICENSE_KEY   the master key from the repo-root .env

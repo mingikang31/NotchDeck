@@ -1,36 +1,19 @@
 import AppKit
 import OSLog
 
-/// Which displays get a notch surface. (Phase 2 adds "Follow Active Screen".)
-enum DisplayPolicy: String, CaseIterable, Identifiable, Sendable {
-    /// The built-in notched display, or the menu-bar display if no notch exists.
-    case notchDisplay
-    case allDisplays
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .notchDisplay: "Notch Display Only"
-        case .allDisplays: "All Displays"
-        }
-    }
-}
-
-/// Multi-screen lifecycle: one `NotchPanelController` per targeted display, rebuilt on
-/// display reconfiguration, fed by global + local mouse monitors.
+/// Multi-screen lifecycle: one `NotchPanelController` per targeted display, rebuilt on display
+/// reconfiguration and on relevant settings changes, fed by global + local mouse monitors.
 final class NotchWindowController {
-    private let settings: SettingsStore
-    private let themeEngine: ThemeEngine
+    private let services: AppServices
     private var controllers: [CGDirectDisplayID: NotchPanelController] = [:]
     private var eventMonitors: [Any] = []
     private var screenObserver: NSObjectProtocol?
-
     private let logger = Logger(subsystem: "com.notchdeck.NotchDeck", category: "Windowing")
 
-    init(settings: SettingsStore, themeEngine: ThemeEngine) {
-        self.settings = settings
-        self.themeEngine = themeEngine
+    private var settings: SettingsStore { services.settings }
+
+    init(services: AppServices) {
+        self.services = services
     }
 
     func start() {
@@ -42,6 +25,11 @@ final class NotchWindowController {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.rebuildPanels() }
+        }
+        observeContinuously({ [weak self] in
+            "\(self?.settings.displayPolicy.rawValue ?? "")|\(self?.settings.sizePreset.rawValue ?? "")"
+        }) { [weak self] _ in
+            self?.rebuildPanels()
         }
     }
 
@@ -69,14 +57,9 @@ final class NotchWindowController {
             if let existing = controllers[id] {
                 existing.update(screen: screen)
             } else {
-                controllers[id] = NotchPanelController(
-                    screen: screen,
-                    displayID: id,
-                    settings: settings,
-                    themeEngine: themeEngine
-                )
+                controllers[id] = NotchPanelController(screen: screen, displayID: id, services: services)
+                logGeometry(for: screen)
             }
-            logGeometry(for: screen)
         }
     }
 
@@ -85,6 +68,10 @@ final class NotchWindowController {
         switch settings.displayPolicy {
         case .allDisplays:
             return screens
+        case .followActiveScreen:
+            let mouse = NSEvent.mouseLocation
+            if let active = screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main { return [active] }
+            return screens.first.map { [$0] } ?? []
         case .notchDisplay:
             if let notched = screens.first(where: \.hasHardwareNotch) { return [notched] }
             return screens.first.map { [$0] } ?? []
@@ -112,9 +99,14 @@ final class NotchWindowController {
         activeController()?.expandPinned()
     }
 
+    func collapseAll() {
+        controllers.values.forEach { $0.transition(to: .collapsed) }
+    }
+
     var isAnyExpanded: Bool { controllers.values.contains(where: \.isExpanded) }
 
     private func activeController() -> NotchPanelController? {
+        if settings.displayPolicy == .followActiveScreen { rebuildPanels() }
         let mouse = NSEvent.mouseLocation
         if let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }),
            let id = screen.displayID, let controller = controllers[id] {
@@ -148,6 +140,7 @@ final class NotchWindowController {
 
     private func route(_ type: NSEvent.EventType) {
         let point = NSEvent.mouseLocation
+        followPointerIfNeeded(point)
         for controller in controllers.values {
             switch type {
             case .leftMouseDown, .rightMouseDown:
@@ -156,5 +149,15 @@ final class NotchWindowController {
                 controller.handlePointerMoved(to: point)
             }
         }
+    }
+
+    /// In Follow Active Screen mode, move the notch when the pointer crosses onto another display
+    /// (only while collapsed, so an open notch never jumps away mid-interaction).
+    private func followPointerIfNeeded(_ point: CGPoint) {
+        guard settings.displayPolicy == .followActiveScreen, !isAnyExpanded,
+              let current = controllers.values.first,
+              !current.model.geometry.screenFrame.contains(point),
+              NSScreen.screens.contains(where: { $0.frame.contains(point) }) else { return }
+        rebuildPanels()
     }
 }

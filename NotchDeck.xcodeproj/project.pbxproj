@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A1B2C3D4E5F60000000000B3 /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60000000000B1 /* KeyboardShortcuts */; };
+		A1B2C3D4E5F60000000000B4 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60000000000B2 /* Sparkle */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		A1B2C3D4E5F6000000000070 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -19,6 +24,8 @@
 /* Begin PBXFileReference section */
 		A1B2C3D4E5F6000000000010 /* NotchDeck.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NotchDeck.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F6000000000011 /* NotchDeckTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NotchDeckTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1B2C3D4E5F60000000000C1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A1B2C3D4E5F60000000000C2 /* NotchDeck.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = NotchDeck.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -39,6 +46,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1B2C3D4E5F60000000000B3 /* KeyboardShortcuts in Frameworks */,
+				A1B2C3D4E5F60000000000B4 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -57,8 +66,18 @@
 			children = (
 				A1B2C3D4E5F6000000000020 /* NotchDeck */,
 				A1B2C3D4E5F6000000000021 /* NotchDeckTests */,
+				A1B2C3D4E5F60000000000C0 /* Config */,
 				A1B2C3D4E5F6000000000003 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		A1B2C3D4E5F60000000000C0 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3D4E5F60000000000C1 /* Info.plist */,
+				A1B2C3D4E5F60000000000C2 /* NotchDeck.xcconfig */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 		A1B2C3D4E5F6000000000003 /* Products */ = {
@@ -90,6 +109,8 @@
 			);
 			name = NotchDeck;
 			packageProductDependencies = (
+				A1B2C3D4E5F60000000000B1 /* KeyboardShortcuts */,
+				A1B2C3D4E5F60000000000B2 /* Sparkle */,
 			);
 			productName = NotchDeck;
 			productReference = A1B2C3D4E5F6000000000010 /* NotchDeck.app */;
@@ -146,6 +167,10 @@
 			);
 			mainGroup = A1B2C3D4E5F6000000000002;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A1B2C3D4E5F60000000000A5 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
+				A1B2C3D4E5F60000000000A6 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A1B2C3D4E5F6000000000003 /* Products */;
 			projectDirPath = "";
@@ -260,6 +285,7 @@
 		};
 		A1B2C3D4E5F6000000000091 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A1B2C3D4E5F60000000000C2 /* NotchDeck.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
@@ -269,6 +295,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = NotchDeck;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_LSUIElement = YES;
@@ -289,6 +316,7 @@
 		};
 		A1B2C3D4E5F6000000000092 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A1B2C3D4E5F60000000000C2 /* NotchDeck.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
@@ -298,6 +326,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = NotchDeck;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_LSUIElement = YES;
@@ -387,6 +416,38 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A1B2C3D4E5F60000000000A5 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sindresorhus/KeyboardShortcuts";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.1.0;
+			};
+		};
+		A1B2C3D4E5F60000000000A6 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.10.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A1B2C3D4E5F60000000000B1 /* KeyboardShortcuts */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F60000000000A5 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */;
+			productName = KeyboardShortcuts;
+		};
+		A1B2C3D4E5F60000000000B2 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F60000000000A6 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A1B2C3D4E5F6000000000001 /* Project object */;
 }

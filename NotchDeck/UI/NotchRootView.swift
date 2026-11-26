@@ -44,6 +44,9 @@ struct NotchRootView: View {
             .onTapGesture {
                 if model.state != .expanded { model.onTap() }
             }
+            // Optional: on non-notch displays, keep the idle pill invisible until hovered.
+            // The hover zone stays live, so the pill still appears on approach.
+            .opacity(settings.hidesIdlePill && geometry.kind == .fallbackPill && state == .collapsed ? 0 : 1)
 
             if settings.showsGeometryOutline {
                 GeometryOutline(geometry: geometry, showsLabel: state == .collapsed)

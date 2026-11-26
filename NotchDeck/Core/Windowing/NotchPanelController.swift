@@ -20,9 +20,9 @@ final class NotchPanelController {
 
     private static let collapseGrace: Duration = .milliseconds(220)
 
-    init(screen: NSScreen, displayID: CGDirectDisplayID, settings: SettingsStore, themeEngine: ThemeEngine) {
+    init(screen: NSScreen, displayID: CGDirectDisplayID, services: AppServices) {
         self.displayID = displayID
-        self.settings = settings
+        self.settings = services.settings
 
         let geometry = screen.notchGeometry(preset: settings.sizePreset)
         model = NotchViewModel(
@@ -33,7 +33,7 @@ final class NotchPanelController {
         panel = NotchPanel(contentRect: geometry.panelFrame)
 
         let hostingView = NotchHostingView(
-            rootView: NotchPanelContent(model: model, themeEngine: themeEngine, settings: settings)
+            rootView: NotchPanelContent(model: model, services: services)
         )
         // Never let SwiftUI resize the window to its ideal size; the frame is ours.
         hostingView.sizingOptions = []
@@ -42,6 +42,7 @@ final class NotchPanelController {
         panel.contentView = hostingView
 
         model.onTap = { [weak self] in self?.transition(to: .expanded) }
+        model.onRequestCollapse = { [weak self] in self?.transition(to: .collapsed) }
         panel.onEscape = { [weak self] in self?.transition(to: .collapsed) }
         hostingView.onPointerActivity = { [weak self] in
             self?.handlePointerMoved(to: NSEvent.mouseLocation)
@@ -158,7 +159,7 @@ final class NotchPanelController {
     }
 
     private func schedulePendingCollapse() {
-        guard collapseTask == nil, !isPinnedOpen else { return }
+        guard collapseTask == nil, !isPinnedOpen, settings.autoCollapse == .pointerExit else { return }
         collapseTask = Task { [weak self] in
             try? await Task.sleep(for: Self.collapseGrace)
             guard !Task.isCancelled, let self else { return }
@@ -178,12 +179,10 @@ final class NotchPanelController {
 /// Root content for a panel's hosting view, with shared stores injected.
 struct NotchPanelContent: View {
     let model: NotchViewModel
-    let themeEngine: ThemeEngine
-    let settings: SettingsStore
+    let services: AppServices
 
     var body: some View {
         NotchRootView(model: model)
-            .environment(themeEngine)
-            .environment(settings)
+            .appServices(services)
     }
 }

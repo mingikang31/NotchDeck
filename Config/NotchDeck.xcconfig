@@ -1,0 +1,23 @@
+// NotchDeck distribution configuration (app target).
+// Note: "//" starts a comment in xcconfig files, so URLs are written as "https:/$()/host".
+
+// MARK: Licensing (signing proxy, see Server/license-proxy/README.md)
+
+// Base URL of the license proxy. Debug talks to the local dev server (node Server/license-proxy/dev-server.mjs).
+LICENSE_API_BASE_URL = https:/$()/license.notchdeck.example
+LICENSE_API_BASE_URL[config=Debug] = http:/$()/127.0.0.1:8787
+
+// Ed25519 public key (base64, 32 raw bytes) used to verify signed receipts offline.
+// Debug uses a throwaway DEV key whose private half lives only in Server/license-proxy/.dev.vars (gitignored).
+// Generate the production pair with: swift Scripts/license-keygen.swift
+LICENSE_PUBLIC_KEY =
+LICENSE_PUBLIC_KEY[config=Debug] = 4jhHeTsZyswer0ANXTvI8GHDDL5WpZM4yCgVKwnWSYY=
+
+// Where "Buy NotchDeck" points.
+PURCHASE_URL = https:/$()/notchdeck.example/buy
+
+// MARK: Sparkle 2 auto-updates
+// Leave empty until you host an appcast; the updater stays disabled while either value is empty.
+// SUPublicEDKey comes from Sparkle's generate_keys tool (it stores the private key in your login keychain).
+SPARKLE_FEED_URL =
+SPARKLE_PUBLIC_ED_KEY =

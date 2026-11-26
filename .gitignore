@@ -4,3 +4,10 @@ DerivedData/
 xcuserdata/
 *.xcuserstate
 *.profraw
+.vscode
+
+# Secrets (master license key, license signing keys). Never commit.
+.env
+.env.*
+!.env.example
+.dev.vars
