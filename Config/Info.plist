@@ -13,6 +13,12 @@
 	<string>$(SPARKLE_FEED_URL)</string>
 	<key>SUPublicEDKey</key>
 	<string>$(SPARKLE_PUBLIC_ED_KEY)</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>NotchDeck reads what’s playing in Music and Spotify and controls playback from the notch.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>NotchDeck shows your next event in the notch with a one-click Join button for video calls.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>NotchDeck shows your next event in the notch with a one-click Join button for video calls.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- Lets Debug builds reach the local license dev server on 127.0.0.1. -->

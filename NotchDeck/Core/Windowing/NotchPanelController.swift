@@ -13,6 +13,9 @@ final class NotchPanelController {
     let panel: NotchPanel
 
     private let settings: SettingsStore
+    private let liveActivity: LiveActivityCoordinator
+    private let fileTray: FileTrayStore
+    private let license: LicenseManager
     private var dwellTask: Task<Void, Never>?
     private var collapseTask: Task<Void, Never>?
     /// Set when opened explicitly (menu / shortcut): pointer exit then won't auto-collapse.
@@ -23,6 +26,9 @@ final class NotchPanelController {
     init(screen: NSScreen, displayID: CGDirectDisplayID, services: AppServices) {
         self.displayID = displayID
         self.settings = services.settings
+        self.liveActivity = services.liveActivity
+        self.fileTray = services.fileTray
+        self.license = services.licenseManager
 
         let geometry = screen.notchGeometry(preset: settings.sizePreset)
         model = NotchViewModel(
@@ -39,7 +45,9 @@ final class NotchPanelController {
         hostingView.sizingOptions = []
         hostingView.frame = NSRect(origin: .zero, size: geometry.panelFrame.size)
         hostingView.autoresizingMask = [.width, .height]
-        panel.contentView = hostingView
+        let container = NotchContainerView(frame: NSRect(origin: .zero, size: geometry.panelFrame.size))
+        container.addSubview(hostingView)
+        panel.contentView = container
 
         model.onTap = { [weak self] in self?.transition(to: .expanded) }
         model.onRequestCollapse = { [weak self] in self?.transition(to: .collapsed) }
@@ -48,11 +56,15 @@ final class NotchPanelController {
             self?.handlePointerMoved(to: NSEvent.mouseLocation)
         }
 
+        container.dropDelegate = self
         panel.setFrame(geometry.panelFrame, display: false)
         panel.orderFrontRegardless()
     }
 
     var isExpanded: Bool { model.state == .expanded }
+
+    /// Width of the live-activity wings currently beside the cutout (0 when idle).
+    private var wing: CGFloat { liveActivity.wingWidth }
 
     // MARK: Screen updates
 
@@ -78,11 +90,11 @@ final class NotchPanelController {
         let geometry = model.geometry
         switch model.state {
         case .collapsed:
-            if geometry.interactionZone(for: .collapsed).contains(point) {
+            if geometry.interactionZone(for: .collapsed, wing: wing).contains(point) {
                 beginHoverIntent()
             }
         case .peek:
-            if !geometry.interactionZone(for: .peek).contains(point) {
+            if !geometry.interactionZone(for: .peek, wing: wing).contains(point) {
                 transition(to: .collapsed)
             }
         case .expanded:
@@ -111,9 +123,36 @@ final class NotchPanelController {
         }
     }
 
-    func expandPinned() {
+    func expandPinned(showing module: NotchModule? = nil) {
+        if let module { model.selectedModule = module }
         transition(to: .expanded)
         isPinnedOpen = true
+    }
+
+    /// A file drag is in progress: open straight into the File Tray when it reaches the notch,
+    /// so the file can be dropped in one gesture.
+    func handleDragHover(at point: CGPoint) {
+        // While a file drag is in flight the panel must be able to receive it even when collapsed
+        // (normally collapsed = click-through). Restored on mouse-up / collapse.
+        if panel.ignoresMouseEvents { panel.ignoresMouseEvents = false }
+        guard model.state != .expanded,
+              model.geometry.interactionZone(for: .peek, wing: wing).contains(point) else { return }
+        openForDrop()
+    }
+
+    /// The drag session ended (mouse-up anywhere).
+    func endDragSession() {
+        fileTray.isDropTargeted = false
+        if model.state == .collapsed { panel.ignoresMouseEvents = true }
+    }
+
+    private var acceptsDrops: Bool {
+        license.isUnlocked && settings.enabledModules.contains(.fileTray)
+    }
+
+    private func openForDrop() {
+        model.selectedModule = .fileTray
+        if model.state != .expanded { transition(to: .expanded) }
     }
 
     // MARK: State machine
@@ -150,7 +189,7 @@ final class NotchPanelController {
         dwellTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(delay))
             guard !Task.isCancelled, let self, self.model.state == .peek else { return }
-            if self.model.geometry.interactionZone(for: .peek).contains(NSEvent.mouseLocation) {
+            if self.model.geometry.interactionZone(for: .peek, wing: self.wing).contains(NSEvent.mouseLocation) {
                 self.transition(to: .expanded)
             } else {
                 self.transition(to: .collapsed)
@@ -173,6 +212,39 @@ final class NotchPanelController {
     private func cancelPendingCollapse() {
         collapseTask?.cancel()
         collapseTask = nil
+    }
+}
+
+// MARK: - Drop destination
+
+extension NotchPanelController: NotchDropDelegate {
+    func notchDragUpdated(_ info: NSDraggingInfo) -> NSDragOperation {
+        guard acceptsDrops, FileTrayStore.canAccept(info.draggingPasteboard) else {
+            fileTray.isDropTargeted = false
+            return []
+        }
+        let point = panel.convertPoint(toScreen: info.draggingLocation)
+        let zone = model.state == .expanded
+            ? model.geometry.interactionZone(for: .expanded)
+            : model.geometry.interactionZone(for: .peek, wing: wing)
+        guard zone.contains(point) else {
+            fileTray.isDropTargeted = false
+            return []
+        }
+        openForDrop()
+        fileTray.isDropTargeted = true
+        return .copy
+    }
+
+    func notchDragExited() {
+        fileTray.isDropTargeted = false
+    }
+
+    func notchPerformDrop(_ info: NSDraggingInfo) -> Bool {
+        fileTray.isDropTargeted = false
+        guard acceptsDrops else { return false }
+        model.selectedModule = .fileTray
+        return fileTray.handleDrop(pasteboard: info.draggingPasteboard)
     }
 }
 

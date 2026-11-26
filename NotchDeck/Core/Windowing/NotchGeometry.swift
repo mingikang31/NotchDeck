@@ -113,18 +113,26 @@ nonisolated struct NotchGeometry: Equatable, Sendable {
 
     // MARK: Per-state metrics
 
-    func metrics(for state: NotchState) -> NotchShapeMetrics {
-        switch state {
+    /// Widest live-activity "wing" (content beside the cutout) that still fits the panel.
+    var maximumWingWidth: CGFloat {
+        max(0, (expandedBodySize.width - cutout.width - Self.peekGrowth.width) / 2)
+    }
+
+    /// - Parameter wing: width of the live-activity content shown on *each* side of the cutout
+    ///   while collapsed or peeking (album art + visualizer, next meeting). 0 when idle.
+    func metrics(for state: NotchState, wing: CGFloat = 0) -> NotchShapeMetrics {
+        let wing = min(max(wing, 0), maximumWingWidth)
+        return switch state {
         case .collapsed:
             NotchShapeMetrics(
-                bodySize: cutout.size,
+                bodySize: CGSize(width: cutout.width + 2 * wing, height: cutout.height),
                 earRadius: Self.collapsedEarRadius,
                 bottomRadius: Self.collapsedBottomRadius
             )
         case .peek:
             NotchShapeMetrics(
                 bodySize: CGSize(
-                    width: cutout.width + Self.peekGrowth.width,
+                    width: cutout.width + 2 * wing + Self.peekGrowth.width,
                     height: cutout.height + Self.peekGrowth.height
                 ),
                 earRadius: Self.peekEarRadius,
@@ -140,8 +148,8 @@ nonisolated struct NotchGeometry: Equatable, Sendable {
     }
 
     /// Global rect of the full silhouette (ears included), top-anchored and centered on the cutout.
-    func shapeRect(for state: NotchState) -> CGRect {
-        let size = metrics(for: state).shapeSize
+    func shapeRect(for state: NotchState, wing: CGFloat = 0) -> CGRect {
+        let size = metrics(for: state, wing: wing).shapeSize
         return CGRect(
             x: cutout.midX - size.width / 2,
             y: screenFrame.maxY - size.height,
@@ -151,19 +159,19 @@ nonisolated struct NotchGeometry: Equatable, Sendable {
     }
 
     /// Global rect of the body only (ears excluded).
-    func bodyRect(for state: NotchState) -> CGRect {
-        let m = metrics(for: state)
-        return shapeRect(for: state).insetBy(dx: m.earRadius, dy: 0)
+    func bodyRect(for state: NotchState, wing: CGFloat = 0) -> CGRect {
+        let m = metrics(for: state, wing: wing)
+        return shapeRect(for: state, wing: wing).insetBy(dx: m.earRadius, dy: 0)
     }
 
     /// Region in which the pointer is considered "on" the notch for the given state.
     /// Extends above the screen's top edge so the very top pixel row is included.
-    func interactionZone(for state: NotchState) -> CGRect {
+    func interactionZone(for state: NotchState, wing: CGFloat = 0) -> CGRect {
         switch state {
         case .collapsed:
-            cutout.insetBy(dx: -Self.hoverSlop, dy: -Self.hoverSlop)
+            bodyRect(for: .collapsed, wing: wing).insetBy(dx: -Self.hoverSlop, dy: -Self.hoverSlop)
         case .peek:
-            shapeRect(for: .peek).insetBy(dx: -Self.hoverSlop, dy: -Self.hoverSlop)
+            shapeRect(for: .peek, wing: wing).insetBy(dx: -Self.hoverSlop, dy: -Self.hoverSlop)
         case .expanded:
             shapeRect(for: .expanded).insetBy(dx: -Self.exitSlop, dy: -Self.exitSlop)
         }

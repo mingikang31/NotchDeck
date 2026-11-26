@@ -8,6 +8,7 @@ final class NotchWindowController {
     private var controllers: [CGDirectDisplayID: NotchPanelController] = [:]
     private var eventMonitors: [Any] = []
     private var screenObserver: NSObjectProtocol?
+    private let dragMonitor = DragSessionMonitor()
     private let logger = Logger(subsystem: "com.notchdeck.NotchDeck", category: "Windowing")
 
     private var settings: SettingsStore { services.settings }
@@ -19,6 +20,14 @@ final class NotchWindowController {
     func start() {
         rebuildPanels()
         installEventMonitors()
+        dragMonitor.onDragMoved = { [weak self] point in
+            guard let self, self.settings.enabledModules.contains(.fileTray), self.services.licenseManager.isUnlocked else { return }
+            self.controllers.values.forEach { $0.handleDragHover(at: point) }
+        }
+        dragMonitor.onDragEnded = { [weak self] in
+            self?.controllers.values.forEach { $0.endDragSession() }
+        }
+        dragMonitor.start()
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -34,6 +43,7 @@ final class NotchWindowController {
     }
 
     func stop() {
+        dragMonitor.stop()
         eventMonitors.forEach(NSEvent.removeMonitor)
         eventMonitors.removeAll()
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
@@ -95,8 +105,8 @@ final class NotchWindowController {
         activeController()?.toggle()
     }
 
-    func expandPinned() {
-        activeController()?.expandPinned()
+    func expandPinned(showing module: NotchModule? = nil) {
+        activeController()?.expandPinned(showing: module)
     }
 
     func collapseAll() {

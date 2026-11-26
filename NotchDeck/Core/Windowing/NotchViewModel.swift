@@ -8,6 +8,8 @@ final class NotchViewModel {
     var geometry: NotchGeometry
     var displayName: String
     var refreshRate: Int
+    /// The module tab shown when expanded (nil = first enabled module).
+    var selectedModule: NotchModule?
 
     /// Invoked when the user clicks the collapsed / peeking silhouette.
     @ObservationIgnored var onTap: () -> Void = {}

@@ -7,11 +7,15 @@ struct NotchRootView: View {
 
     @Environment(ThemeEngine.self) private var themeEngine
     @Environment(SettingsStore.self) private var settings
+    @Environment(LiveActivityCoordinator.self) private var liveActivity
+    @Environment(\.settingsOpener) private var settingsOpener
 
     var body: some View {
         let geometry = model.geometry
         let state = model.state
-        let metrics = geometry.metrics(for: state)
+        let activity = liveActivity.current
+        let wing = min(activity?.wingWidth ?? 0, geometry.maximumWingWidth)
+        let metrics = geometry.metrics(for: state, wing: wing)
         let expandedMetrics = geometry.metrics(for: .expanded)
         let tokens = themeEngine.tokens
 
@@ -39,14 +43,33 @@ struct NotchRootView: View {
                                 removal: .opacity.animation(.easeIn(duration: 0.1))
                             )
                         )
+                } else if let activity {
+                    LiveActivityWings(
+                        activity: activity,
+                        cutoutWidth: geometry.cutout.width + (state == .peek ? NotchGeometry.peekGrowth.width : 0),
+                        wing: wing,
+                        height: metrics.bodySize.height
+                    )
+                    .transition(.opacity.animation(.easeOut(duration: 0.2)))
                 }
             }
+            .animation(NotchMotion.animation(to: .peek), value: activity)
             .onTapGesture {
                 if model.state != .expanded { model.onTap() }
             }
+            // Right-click the notch: always-reachable Settings / Quit, even when the menu bar
+            // icon is hidden behind the notch by menu bar overflow.
+            .contextMenu {
+                Button("Settings…") {
+                    model.onRequestCollapse()
+                    settingsOpener.open(.general)
+                }
+                Divider()
+                Button("Quit NotchDeck") { NSApp.terminate(nil) }
+            }
             // Optional: on non-notch displays, keep the idle pill invisible until hovered.
             // The hover zone stays live, so the pill still appears on approach.
-            .opacity(settings.hidesIdlePill && geometry.kind == .fallbackPill && state == .collapsed ? 0 : 1)
+            .opacity(settings.hidesIdlePill && geometry.kind == .fallbackPill && state == .collapsed && activity == nil ? 0 : 1)
 
             if settings.showsGeometryOutline {
                 GeometryOutline(geometry: geometry, showsLabel: state == .collapsed)

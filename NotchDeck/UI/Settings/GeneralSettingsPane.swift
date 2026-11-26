@@ -4,6 +4,7 @@ struct GeneralSettingsPane: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(LaunchAtLoginService.self) private var launchAtLogin
     @Environment(LicenseManager.self) private var license
+    @Environment(UpdateManager.self) private var updates
     @Environment(\.settingsOpener) private var settingsOpener
 
     var body: some View {
@@ -48,6 +49,18 @@ struct GeneralSettingsPane: View {
                 }
             }
 
+            Section {
+                Toggle("Ask for permissions every time NotchDeck opens", isOn: $settings.permissionsPerSession)
+            } header: {
+                Text("Privacy")
+            } footer: {
+                Text(settings.permissionsPerSession
+                     ? "Access to Music, Spotify and your calendars stays on only while NotchDeck is running. macOS asks again the next time it opens."
+                     : "macOS remembers the permissions you grant until you change them in System Settings → Privacy & Security.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Displays") {
                 Picker("Show the notch on", selection: $settings.displayPolicy) {
                     ForEach(DisplayPolicy.allCases) { Text($0.displayName).tag($0) }
@@ -72,6 +85,21 @@ struct GeneralSettingsPane: View {
                 }
                 Picker("Collapse automatically", selection: $settings.autoCollapse) {
                     ForEach(AutoCollapseBehavior.allCases) { Text($0.displayName).tag($0) }
+                }
+            }
+
+            Section {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("NotchDeck \(updates.versionDescription)")
+                        Text("You can also right-click the notch to quit, or press ⌘Q in this window.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Quit NotchDeck", role: .destructive) {
+                        NSApp.terminate(nil)
+                    }
                 }
             }
         }

@@ -18,7 +18,12 @@ final class SettingsStore {
         static let accentColor = "notchdeck.accentColor"
         static let hidesIdlePill = "notchdeck.hidesIdlePill"
         static let modules = "notchdeck.modules"
+        static let hiddenCalendarIDs = "notchdeck.calendar.hiddenIDs"
+        static let calendarRange = "notchdeck.calendar.range"
+        static let calendarShowsAllDay = "notchdeck.calendar.showsAllDay"
         static let chatModel = "notchdeck.chatModel"
+        static let permissionsPerSession = "notchdeck.privacy.permissionsPerSession"
+        static let calendarWasConnected = "notchdeck.calendar.wasConnected"
         static let chatSystemPrompt = "notchdeck.chatSystemPrompt"
         static let agentServerPort = "notchdeck.agentServerPort"
         static let geometryOutline = "notchdeck.debug.showsGeometryOutline"
@@ -67,6 +72,23 @@ final class SettingsStore {
 
     var enabledModules: [NotchModule] { modules.filter(\.isEnabled).map(\.module) }
 
+    // MARK: Privacy
+
+    /// Permissions (Automation, Calendars, …) last only while NotchDeck runs; it asks again next launch.
+    var permissionsPerSession: Bool { didSet { defaults.set(permissionsPerSession, forKey: Key.permissionsPerSession) } }
+    /// The user connected their calendar at some point; with per-session permissions NotchDeck
+    /// re-asks for Calendar access at launch instead of waiting for "Connect Calendar".
+    var calendarWasConnected: Bool { didSet { defaults.set(calendarWasConnected, forKey: Key.calendarWasConnected) } }
+
+    // MARK: Calendar
+
+    /// Calendars the user turned off. Stored as an exclusion list so newly added calendars show by default.
+    var hiddenCalendarIDs: Set<String> {
+        didSet { defaults.set(hiddenCalendarIDs.sorted(), forKey: Key.hiddenCalendarIDs) }
+    }
+    var calendarRange: CalendarRange { didSet { defaults.set(calendarRange.rawValue, forKey: Key.calendarRange) } }
+    var calendarShowsAllDay: Bool { didSet { defaults.set(calendarShowsAllDay, forKey: Key.calendarShowsAllDay) } }
+
     // MARK: AI & Agents
 
     var chatModel: ChatModelChoice { didSet { defaults.set(chatModel.rawValue, forKey: Key.chatModel) } }
@@ -110,6 +132,13 @@ final class SettingsStore {
         let storedModules = defaults.data(forKey: Key.modules)
             .flatMap { try? JSONDecoder().decode([ModuleConfiguration].self, from: $0) }
         modules = ModuleConfiguration.reconciled(storedModules ?? ModuleConfiguration.defaults)
+
+        permissionsPerSession = defaults.object(forKey: Key.permissionsPerSession) as? Bool ?? true
+        calendarWasConnected = defaults.bool(forKey: Key.calendarWasConnected)
+
+        hiddenCalendarIDs = Set(defaults.stringArray(forKey: Key.hiddenCalendarIDs) ?? [])
+        calendarRange = choice(Key.calendarRange, CalendarRange.next3Days)
+        calendarShowsAllDay = defaults.object(forKey: Key.calendarShowsAllDay) as? Bool ?? true
 
         chatModel = choice(Key.chatModel, ChatModelChoice.claudeSonnet)
         chatSystemPrompt = defaults.string(forKey: Key.chatSystemPrompt) ?? Self.defaultSystemPrompt

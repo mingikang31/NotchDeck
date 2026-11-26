@@ -1,4 +1,5 @@
 import AppKit
+import EventKit
 import SwiftUI
 
 /// Late-bound "open Settings at pane X" action, usable from SwiftUI (environment) and AppKit.
@@ -26,6 +27,10 @@ struct AppServices {
     let launchAtLogin: LaunchAtLoginService
     let apiKeys: APIKeyStore
     let settingsOpener: SettingsOpener
+    let nowPlaying: NowPlayingStore
+    let fileTray: FileTrayStore
+    let calendar: CalendarStore
+    let liveActivity: LiveActivityCoordinator
 }
 
 extension View {
@@ -36,6 +41,10 @@ extension View {
             .environment(services.updateManager)
             .environment(services.launchAtLogin)
             .environment(services.apiKeys)
+            .environment(services.nowPlaying)
+            .environment(services.fileTray)
+            .environment(services.calendar)
+            .environment(services.liveActivity)
             .environment(\.settingsOpener, services.settingsOpener)
     }
 }
@@ -55,24 +64,56 @@ final class DependencyContainer {
     init(defaults: UserDefaults = .standard, secureStore: SecureStore? = nil) {
         let settings = SettingsStore(defaults: defaults)
         let store = secureStore ?? (settings.usesEphemeralSecureStore ? InMemorySecureStore() : KeychainHelper())
+        let license = LicenseManager.live(store: store)
+        let nowPlaying = NowPlayingStore()
+        let calendar = CalendarStore(settings: settings)
         services = AppServices(
             settings: settings,
             themeEngine: ThemeEngine(settings: settings),
-            licenseManager: LicenseManager.live(store: store),
+            licenseManager: license,
             updateManager: UpdateManager(),
             launchAtLogin: LaunchAtLoginService(),
             apiKeys: APIKeyStore(store: store),
-            settingsOpener: SettingsOpener()
+            settingsOpener: SettingsOpener(),
+            nowPlaying: nowPlaying,
+            fileTray: FileTrayStore(),
+            calendar: calendar,
+            liveActivity: LiveActivityCoordinator(media: nowPlaying, calendar: calendar, settings: settings, license: license)
         )
         windowController = NotchWindowController(services: services)
     }
 
     func start() {
+        // Per-session permissions: forget last run's approvals before anything can use them.
+        if settings.permissionsPerSession {
+            // Remember a calendar approval from the last run before forgetting it, so it's re-asked below.
+            if EKEventStore.authorizationStatus(for: .event) == .fullAccess {
+                settings.calendarWasConnected = true
+            }
+            SessionPermissions.resetAll()
+        }
         services.settingsOpener.handler = { [weak self] pane in self?.openSettings(pane) }
         services.licenseManager.start()
         services.apiKeys.refresh()
         windowController.start()
         services.updateManager.start()
+        services.liveActivity.start()
+
+        // Modules run only while enabled in Settings → Modules and unlocked by the license.
+        observeContinuously({ [weak self] in
+            guard let self else { return [NotchModule]() }
+            return self.services.licenseManager.isUnlocked ? self.settings.enabledModules : []
+        }) { [weak self] active in
+            self?.applyModuleActivation(active)
+        }
+        applyModuleActivation(services.licenseManager.isUnlocked ? settings.enabledModules : [])
+
+        // Calendar was reset above; if the user had connected it before, ask again right away
+        // rather than leaving the module disconnected until they find the button.
+        if settings.permissionsPerSession, settings.calendarWasConnected,
+           settings.enabledModules.contains(.calendar), services.licenseManager.isUnlocked {
+            Task { await services.calendar.requestAccess() }
+        }
 
         let shortcuts = ShortcutManager { [weak self] action in self?.perform(action) }
         shortcuts.register()
@@ -82,6 +123,9 @@ final class DependencyContainer {
     func stop() {
         windowController.stop()
         services.licenseManager.stop()
+        if settings.permissionsPerSession {
+            SessionPermissions.resetAll()
+        }
     }
 
     func openSettings(_ pane: SettingsPane = .general) {
@@ -89,14 +133,23 @@ final class DependencyContainer {
         settingsWindowController.show(pane)
     }
 
+    private func applyModuleActivation(_ active: [NotchModule]) {
+        services.nowPlaying.setActive(active.contains(.media))
+        services.calendar.setActive(active.contains(.calendar))
+    }
+
     private func perform(_ action: ShortcutAction) {
         switch action {
         case .toggleNotch:
             windowController.toggleExpanded()
-        case .openAIChat, .openFileTray:
-            // Opens the notch now; the modules focus their own UI once they ship (Phases 3–4).
-            windowController.expandPinned()
-        case .togglePlayPause, .togglePomodoro, .toggleCameraMirror, .approveAgentRequest:
+        case .openFileTray:
+            windowController.expandPinned(showing: .fileTray)
+        case .togglePlayPause:
+            services.nowPlaying.perform(.playPause)
+        case .openAIChat:
+            // Opens the notch now; the chat focuses its input once it ships (Phase 4).
+            windowController.expandPinned(showing: .aiChat)
+        case .togglePomodoro, .toggleCameraMirror, .approveAgentRequest:
             break // Wired when the corresponding module ships.
         }
     }

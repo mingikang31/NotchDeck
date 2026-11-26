@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// Expanded notch content. Until the modules ship (Phases 3–6) the body is a shell with an
-/// ambient-glow preview and a geometry readout; when the trial has ended and no license is
-/// active, the body is replaced by the activation gate.
+/// Expanded notch content: module tabs, then the selected module. When the trial has ended
+/// without a license, the activation gate replaces the module body.
 struct ExpandedShellView: View {
     let model: NotchViewModel
 
@@ -15,10 +14,14 @@ struct ExpandedShellView: View {
         let tokens = themeEngine.tokens
         let geometry = model.geometry
         let ear = geometry.metrics(for: .expanded).earRadius
+        let modules = license.isUnlocked ? settings.enabledModules : []
+        let selected = Self.resolvedSelection(model.selectedModule, enabled: modules)
 
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                ModuleTabStrip(modules: license.isUnlocked ? settings.enabledModules : [], tokens: tokens)
+                ModuleTabStrip(modules: modules, selected: selected, tokens: tokens) { module in
+                    withAnimation(.smooth(duration: 0.25)) { model.selectedModule = module }
+                }
                 Spacer(minLength: 12)
                 ThemeSwitcher()
                 IconButton(symbol: "gearshape.fill", help: "NotchDeck Settings", tokens: tokens) {
@@ -27,52 +30,120 @@ struct ExpandedShellView: View {
                 }
             }
 
-            if license.isUnlocked {
-                HStack(alignment: .center, spacing: 16) {
-                    AmbientGlowPreview(colors: settings.accentColor.gradient, intensity: tokens.glowOpacity)
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("NotchDeck")
-                            .font(.system(size: 15, weight: .semibold))
-                        Text(license.trialBadgeText ?? "Modules arrive in upcoming phases")
-                            .font(.system(size: 11))
-                            .foregroundStyle(tokens.secondaryText)
+            Group {
+                if !license.isUnlocked {
+                    ActivationGateView(tokens: tokens) {
+                        model.onRequestCollapse()
+                        settingsOpener.open(.license)
                     }
-
-                    Spacer(minLength: 12)
-
-                    GeometryReadout(model: model, tokens: tokens)
-                }
-            } else {
-                ActivationGateView(tokens: tokens) {
-                    model.onRequestCollapse()
-                    settingsOpener.open(.license)
+                } else if let selected {
+                    moduleBody(selected, tokens: tokens)
+                        .id(selected)
+                        .transition(.opacity)
+                } else {
+                    NoModulesView(tokens: tokens) {
+                        model.onRequestCollapse()
+                        settingsOpener.open(.modules)
+                    }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .foregroundStyle(tokens.primaryText)
         .padding(.top, geometry.topInset + 10)
         .padding(.horizontal, ear + 20)
-        .padding(.bottom, 16)
+        .padding(.bottom, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// The stored selection if it's still enabled, otherwise the first enabled module.
+    static func resolvedSelection(_ selection: NotchModule?, enabled: [NotchModule]) -> NotchModule? {
+        if let selection, enabled.contains(selection) { return selection }
+        return enabled.first
+    }
+
+    @ViewBuilder
+    private func moduleBody(_ module: NotchModule, tokens: ThemeTokens) -> some View {
+        switch module {
+        case .media: MediaModuleView(tokens: tokens)
+        case .fileTray: FileTrayModuleView(tokens: tokens)
+        case .calendar: CalendarModuleView(tokens: tokens)
+        default: ComingSoonView(module: module, tokens: tokens)
+        }
     }
 }
 
-/// Tab bar for the enabled modules, in the user's order (Settings → Modules).
+/// Clickable tab bar for the enabled modules, in the user's order (Settings → Modules).
 private struct ModuleTabStrip: View {
     let modules: [NotchModule]
+    let selected: NotchModule?
     let tokens: ThemeTokens
+    let select: (NotchModule) -> Void
+
+    @Namespace private var highlight
 
     var body: some View {
         HStack(spacing: 3) {
             ForEach(modules) { module in
-                Image(systemName: module.symbolName)
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 24, height: 22)
-                    .foregroundStyle(tokens.secondaryText)
-                    .background(tokens.controlFill, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                    .help("\(module.displayName) — arrives in Phase \(module.phase)")
+                let isSelected = module == selected
+                Button { select(module) } label: {
+                    Image(systemName: module.symbolName)
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 26, height: 22)
+                        .foregroundStyle(isSelected ? tokens.primaryText : tokens.secondaryText.opacity(module.isAvailable ? 1 : 0.55))
+                        .background {
+                            if isSelected {
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .fill(tokens.controlSelectedFill)
+                                    .matchedGeometryEffect(id: "tab", in: highlight)
+                            } else {
+                                RoundedRectangle(cornerRadius: 7, style: .continuous).fill(tokens.controlFill)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(module.isAvailable ? module.displayName : "\(module.displayName) — arrives in Phase \(module.phase)")
+                .accessibilityLabel(module.displayName)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
+        }
+    }
+}
+
+/// Placeholder body for modules that ship in a later phase.
+private struct ComingSoonView: View {
+    let module: NotchModule
+    let tokens: ThemeTokens
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: module.symbolName)
+                .font(.system(size: 22, weight: .semibold))
+                .frame(width: 56, height: 56)
+                .background(tokens.controlFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(module.displayName).font(.system(size: 14, weight: .semibold))
+                Text("Arrives in Phase \(module.phase) of the roadmap.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(tokens.secondaryText)
+            }
+            Spacer()
+        }
+    }
+}
+
+private struct NoModulesView: View {
+    let tokens: ThemeTokens
+    let openSettings: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("No modules enabled").font(.system(size: 14, weight: .semibold))
+                Button("Choose Modules…", action: openSettings).controlSize(.small)
+            }
+            Spacer()
         }
     }
 }
@@ -131,62 +202,5 @@ struct ThemeSwitcher: View {
         }
         .padding(2)
         .background(tokens.controlFill, in: Capsule())
-    }
-}
-
-/// Artwork placeholder with the ambient glow the Now Playing module will use.
-/// The pulse stands in for audio reactivity until Phase 3 wires real levels.
-private struct AmbientGlowPreview: View {
-    let colors: [Color]
-    let intensity: Double
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            let pulse = 0.82 + 0.18 * sin(t * 2.2)
-            artwork
-                .background {
-                    artwork
-                        .blur(radius: 16)
-                        .scaleEffect(1.1 + 0.08 * pulse)
-                        .opacity(intensity * pulse)
-                }
-        }
-    }
-
-    private var artwork: some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing))
-            .frame(width: 56, height: 56)
-            .overlay {
-                Image(systemName: "waveform")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.9))
-            }
-    }
-}
-
-/// Live readout of the computed geometry for the panel's display.
-private struct GeometryReadout: View {
-    let model: NotchViewModel
-    let tokens: ThemeTokens
-
-    var body: some View {
-        let g = model.geometry
-        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
-            row("Display", model.displayName)
-            row("Cutout", g.kind == .hardwareNotch ? "Hardware notch" : "Fallback pill")
-            row("Size", "\(g.cutout.width.pt) × \(g.cutout.height.pt) pt")
-            row("Span", "x \(g.cutout.minX.pt) – \(g.cutout.maxX.pt)")
-            row("Refresh", "\(model.refreshRate) Hz")
-        }
-        .font(.system(size: 10.5, design: .monospaced))
-    }
-
-    private func row(_ label: String, _ value: String) -> some View {
-        GridRow {
-            Text(label).foregroundStyle(tokens.secondaryText)
-            Text(value).lineLimit(1)
-        }
     }
 }

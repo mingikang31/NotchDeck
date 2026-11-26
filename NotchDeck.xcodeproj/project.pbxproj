@@ -25,6 +25,7 @@
 		A1B2C3D4E5F6000000000010 /* NotchDeck.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NotchDeck.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F6000000000011 /* NotchDeckTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NotchDeckTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F60000000000C1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A1B2C3D4E5F60000000000C3 /* NotchDeck.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NotchDeck.entitlements; sourceTree = "<group>"; };
 		A1B2C3D4E5F60000000000C2 /* NotchDeck.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = NotchDeck.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -76,6 +77,7 @@
 			children = (
 				A1B2C3D4E5F60000000000C1 /* Info.plist */,
 				A1B2C3D4E5F60000000000C2 /* NotchDeck.xcconfig */,
+				A1B2C3D4E5F60000000000C3 /* NotchDeck.entitlements */,
 			);
 			path = Config;
 			sourceTree = "<group>";
@@ -296,6 +298,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Config/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = Config/NotchDeck.entitlements;
 				INFOPLIST_KEY_CFBundleDisplayName = NotchDeck;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_LSUIElement = YES;
@@ -327,6 +330,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Config/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = Config/NotchDeck.entitlements;
 				INFOPLIST_KEY_CFBundleDisplayName = NotchDeck;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_LSUIElement = YES;

@@ -43,6 +43,11 @@ enum ShortcutAction: CaseIterable, Identifiable {
 
     /// The module this shortcut drives, if it isn't built yet.
     var pendingModule: NotchModule? {
+        guard let module, !module.isAvailable else { return nil }
+        return module
+    }
+
+    var module: NotchModule? {
         switch self {
         case .toggleNotch: nil
         case .openAIChat: .aiChat

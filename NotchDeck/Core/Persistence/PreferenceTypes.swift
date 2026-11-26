@@ -71,6 +71,29 @@ nonisolated enum AccentColorChoice: String, CaseIterable, Identifiable, Sendable
     }
 }
 
+/// How far ahead the Calendar module looks.
+nonisolated enum CalendarRange: String, CaseIterable, Identifiable, Sendable {
+    case next24Hours, next3Days, next7Days
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .next24Hours: "Next 24 hours"
+        case .next3Days: "Next 3 days"
+        case .next7Days: "Next 7 days"
+        }
+    }
+
+    var interval: TimeInterval {
+        switch self {
+        case .next24Hours: 24 * 3600
+        case .next3Days: 3 * 24 * 3600
+        case .next7Days: 7 * 24 * 3600
+        }
+    }
+}
+
 /// Default chat model tier; concrete model IDs are resolved by the AI Chat module (Phase 4).
 nonisolated enum ChatModelChoice: String, CaseIterable, Identifiable, Sendable {
     case claudeSonnet, claudeHaiku, geminiFlash, geminiPro
@@ -122,6 +145,11 @@ nonisolated enum NotchModule: String, CaseIterable, Codable, Identifiable, Senda
         case .mirror: "camera.fill"
         }
     }
+
+    /// Latest roadmap phase that has shipped; modules at or below it are functional.
+    static let shippedThroughPhase = 3
+
+    var isAvailable: Bool { phase <= Self.shippedThroughPhase }
 
     /// Roadmap phase in which the module ships.
     var phase: Int {
