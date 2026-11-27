@@ -4,7 +4,56 @@ The running notebook for this project: what exists, how to work it, what to watc
 what's next. Kept up to date as each phase lands. The full product spec is
 [`notchdeck_technical_specification.txt`](notchdeck_technical_specification.txt).
 
-_Last updated: 2026-11-26, Phase 6 committed; Phase 7 (post-spec modules) built, needs hands-on check._
+_Last updated: 2026-11-26. **Paused here.** All seven phases are built and committed. The next session picks up
+either public distribution (Stripe, signing, updates) or feature work. Start with §0._
+
+---
+
+## 0. Start here (handoff for the next session)
+
+**State of the project**
+- All roadmap phases (1–6) plus post-spec Phase 7 are built, tested and committed on `main`. **229 tests**,
+  all passing (`xcodebuild … test`, ~13 s). The user pushes to GitHub (`origin/main`) themselves; at the pause
+  it was in sync through commit `d1facbb`. Don't push unless the user asks.
+- The user runs NotchDeck day to day on this Mac. For personal use, `./Scripts/install-local.sh` builds an
+  optimized copy and installs it in `/Applications` (§2).
+- **Public distribution is not set up yet**, and is the user's next big decision. The full plan is in
+  `distribution.md`, and business / tax notes for California are in `business-and-taxes.md`. **Both are local
+  only** (git-ignored, never committed: the user doesn't want them on the public GitHub page). Read them before
+  any distribution work.
+
+**Before public release, these are blocking** (details in `distribution.md`)
+1. **Apple Developer Program + Developer ID signing + notarization.** Ad-hoc builds re-prompt for Keychain and
+   permissions on every rebuild, and an ad-hoc **Release** build doesn't launch at all (Sparkle fails library
+   validation, §4 "Release builds and library validation").
+2. **LemonSqueezy is shutting down** (sign-ups closed 2026-11-16, payments stop 2027-03-31). The user chose
+   **Stripe one-time payments** (Managed Payments as merchant of record). Stripe doesn't issue license keys, so
+   `Server/license-proxy/worker.js` needs a **Stripe mode** (webhook → create key in Cloudflare D1 → email it →
+   thanks-page lookup → activation limit → revoke on refund) replacing the LemonSqueezy mode. Specified in
+   `distribution.md` Part 4; not implemented yet. Alternatives with built-in keys (Polar, Dodo Payments,
+   Creem, FastSpring) are compared there too.
+3. Placeholders in `Config/NotchDeck.xcconfig` (`notchdeck.example` URLs, empty Release `LICENSE_PUBLIC_KEY`,
+   empty Sparkle feed / key), no app icon (no asset catalog), bundle ID decision, version numbers.
+4. Decide the default for "Ask for permissions every time NotchDeck opens" (ON now, the user's own preference;
+   suggested OFF for customers).
+
+**How the user likes to work** (also in Claude's memory)
+- Keep this file updated with every change (status, how-to, gotchas, log). It's the project's notebook.
+- **No alarming Keychain prompts:** secrets live in one cached vault item; never add per-use Keychain reads.
+- Secrets (master key, signing keys) only in the git-ignored `.env` / Cloudflare secrets; never print or commit.
+- Commit when asked (they often say "commit" after checking things work). Don't push unless asked.
+- They check changes by hand and report what they see; give clear "what to try" notes. They use Spotify,
+  Bluetooth headphones ("gusher 3.0"), Claude Code daily, Frosted Glass theme, Graphite / chosen accents.
+- They prefer measured fixes (root cause + evidence) over guesses, and want CPU / memory kept minimal.
+
+**Open items not yet confirmed by the user**
+- Terminal: typing across several commands (focus restoration fix), New Session button, look.
+- Camera light turning off immediately when leaving Mirror.
+- Bluetooth connection pill (after the AirPods crash fix) and battery levels.
+- Live Claude Code plan usage: requires the user to click Settings → AI & Agents → Usage → **Connect** once;
+  then check the Usage tab shows the real session / weekly %.
+- API key row layout (name left, hint inside the field), System Monitor color picker.
+- Background "pulse" on the System tab (likely fixed by not re-setting the glass material; not seen on screen).
 
 ---
 
@@ -18,7 +67,8 @@ _Last updated: 2026-11-26, Phase 6 committed; Phase 7 (post-spec modules) built,
 | 4 | Embedded AI Chat (Claude + Gemini streaming, Markdown, attachments, focus shortcut) | ✅ Done (Claude chat confirmed) |
 | 5 | Claude Code & Codex agent hooks (127.0.0.1 server, hook installer, Approve/Deny card) | ✅ Done (Claude Code confirmed; Codex believed working) |
 | 6 | Live Activities (battery, Bluetooth, Downloads), Pomodoro, To-Dos, Clipboard, Camera Mirror | ✅ Done (initial review OK; tweaks to come) |
-| 7 | Post-spec: World Clock, Usage / token-cost tracker (AI Chat + Claude Code + Codex, MCP servers), Terminal, synced lyrics | ✅ Built (needs hands-on check) |
+| 7 | Post-spec: World Clock, Usage / token-cost tracker (AI Chat + Claude Code + Codex, MCP servers, plan limits), Terminal, synced lyrics | ✅ Built; lyrics, visualizer accent, usage settings confirmed; rest in §0 open items |
+| R | Public release: Developer ID, notarization, Stripe licensing, Sparkle feed, website | ⏸ Planned (`distribution.md`, local only) |
 | ✗ | Menu bar overflow drawer | Not built: macOS 27 already has it (see §4) |
 | + | System Monitor tab (CPU / GPU / memory, asitop/macmon-style), requested 2026-11-26 | ✅ Done (styles approved) |
 
@@ -38,6 +88,17 @@ open build/DerivedData/Build/Products/Debug/NotchDeck.app
 # Unit tests
 xcodebuild -project NotchDeck.xcodeproj -scheme NotchDeck -derivedDataPath build/DerivedData test
 ```
+
+**For everyday personal use**, install an optimized build in `/Applications`:
+
+```sh
+./Scripts/install-local.sh
+```
+
+It builds Release with the hardened runtime off (into `build/PerfRelease/`; an ad-hoc Release build with the
+hardened runtime won't launch, see §4), quits the running copy, replaces `/Applications/NotchDeck.app` and
+opens it. Each install may re-ask for Keychain access and permissions (ad-hoc signing); settings, the license
+and API keys carry over. Debug builds use about 2× the CPU of Release.
 
 Or open `NotchDeck.xcodeproj` in Xcode and press ⌘R / ⌘U. New `.swift` files dropped into
 `NotchDeck/` or `NotchDeckTests/` are picked up automatically (synchronized folders); no project edits needed.
@@ -320,7 +381,10 @@ which gives the app a **stable identity across every version and update**.
 - **Keychain permission prompts are development-only:** see §3 for the full explanation.
 - **Hardened runtime isn't applied to ad-hoc builds** (`codesign -dv` shows only `adhoc`). Notarization
   requires it, so check your Developer ID release build shows the `runtime` flag.
-- **Distribution needs a Developer ID certificate + notarization** for the `.dmg`/`.zip` (spec §1). Not set up yet.
+- **Distribution needs a Developer ID certificate + notarization** for the `.dmg` (spec §1). Not set up yet;
+  step-by-step plan in `distribution.md` (local only). Direct download only: the Mac App Store is ruled out
+  (NotchDeck can't run sandboxed: TCC resets, editing Claude Code / Codex settings, terminal, Apple Events,
+  IOReport).
 
 ### Licensing
 - **Release builds can't activate licenses yet.** `LICENSE_PUBLIC_KEY` (Release) is empty until you run
@@ -334,8 +398,11 @@ which gives the app a **stable identity across every version and update**.
   already activated keep working (their receipts are signed and verified offline). Fully revoking them
   means rotating the signing key, which also invalidates every customer. Share it only with people you trust.
 - **Production needs the master key set as a Worker secret:** `npx wrangler secret put MASTER_LICENSE_KEY`.
-- **LemonSqueezy seats:** each activation creates a new instance, so a reinstall without
-  "Deactivate This Mac" uses another seat. Refunds don't revoke offline receipts automatically.
+- **LemonSqueezy is going away** (payments stop 2027-03-31). The worker's `MERCHANT = "lemonsqueezy"` mode is
+  obsolete; the plan is a Stripe mode with NotchDeck issuing its own keys (`distribution.md` Part 4). The app
+  side (activate / deactivate endpoints, offline Ed25519 receipts, master key) doesn't change.
+- **Refunds don't revoke offline receipts:** a refund can block *new* activations, but an already-activated Mac
+  keeps working unless the app starts re-validating online (a decision for the release).
 - **Trial tamper resistance is deliberately moderate.** The trial record is HMAC-signed with a secret
   embedded in the app and stored in the Keychain. It defeats deleting preferences, editing the record,
   copying it to another Mac, and rolling the clock back. Deleting the Keychain item itself resets the
@@ -706,9 +773,10 @@ which gives the app a **stable identity across every version and update**.
 - **Fixed-size panel.** The window never resizes; only the drawn silhouette animates (smooth at 120 Hz).
   Transparent, click-through regions make this invisible to the user.
 - **Collapsed state is click-through** (`ignoresMouseEvents`), so menu bar items beside the notch keep working.
-- **Frosted Glass stays black while collapsed over a real notch**, so it stays invisible against the camera housing.
-- **The chat model picker stores a tier** (Claude Sonnet/Haiku, Gemini Flash/Pro); concrete model IDs are
-  chosen when the chat client is built (Phase 4).
+- **The collapsed notch is pure black only while it's exactly the camera housing** (nothing beside or below it),
+  so it disappears into the hardware. With wings or lyrics showing it follows the theme (glass). Changed
+  2026-11-26; it used to be black whenever collapsed, which flipped glass ↔ black on hover.
+- **The chat model picker stores a concrete model** (`ChatModelRef`: provider + ID) from live model catalogs.
 
 ### Verification gaps
 - **Screen capture was blocked** in the environment that built Phases 1–2, so the visual look (notch
@@ -726,6 +794,9 @@ which gives the app a **stable identity across every version and update**.
 | `Config/NotchDeck.xcconfig` | ✅ | License API URL, **public** keys, purchase URL, Sparkle feed/key |
 | `Config/Info.plist` | ✅ | Pulls the xcconfig values into the app's Info.plist |
 | Keychain (`com.notchdeck.NotchDeck` / `secrets`) | — | One item holding the trial/license record and API keys |
+| `distribution.md`, `business-and-taxes.md` | ❌ git-ignored (user's private planning notes) | Release plan; CA business / tax notes |
+| `~/Library/Application Support/NotchDeck/claude-statusline.sh` | — (outside repo, mode 700) | Status line script with the local hook token (only after Connect) |
+| `~/Library/Application Support/NotchDeck/` | — | todos.json, usage-chat.json, chat history, model catalog, tray staging |
 
 Never commit `.env`. The app binary contains only public keys; the master key and signing private key
 exist only in `.env` and Cloudflare secrets.
@@ -763,12 +834,20 @@ exist only in `.env` and Cloudflare secrets.
   approve shortcut, test request.
 - **Calendar** (Phase 3): EventKit, upcoming events with Join buttons, meeting-link parser
   (Zoom, Meet, Teams, Webex), "In 12m: …" collapsed banner.
+- **World Clock** (Phase 7): analog faces per city (day / night look), offsets, cities in Settings → Modules.
+- **Usage** (Phase 7): tokens and cost for AI Chat (real), Claude Code and Codex (estimated at list prices);
+  by-model breakdown; plan limits (Claude Code live via status line once connected, Codex from its logs);
+  MCP servers; a usage line under the Agent Hooks queue; all customizable in Settings → AI & Agents → Usage.
+- **Terminal** (Phase 7): real terminal (SwiftTerm 1.10.1, login shell in a PTY), New Session.
+- **Lyrics** (Phase 7): LRCLIB time-synced line under the collapsed notch, Bluetooth-delay compensated.
+- **Colors:** visualizer accent (+ Match Album Art) and System Monitor color, same palette.
 
 ### Still needed (from the spec)
 - Media fallback for browsers/system audio (`mediaremote-adapter`), real audio-level visualizer (optional).
 - Reminders (EventKit) alongside Calendar.
 - Multi-item drag-out from the tray.
-- Release: Developer ID signing, notarization, DMG, production license keys, deployed proxy, Sparkle appcast.
+- Release: Developer ID signing, notarization, DMG, production license keys, Stripe mode in the license server,
+  deployed proxy, Sparkle appcast, app icon, website (all planned in `distribution.md`).
 
 ---
 
@@ -792,52 +871,55 @@ NotchDeck/                     app sources (synchronized folder)
   Modules/SystemMonitor/       sampler (host stats, IOKit, IOReport), store, views (4 overview styles)
   Modules/LiveActivities/      toast center, battery / Bluetooth / Downloads monitors, store, view
   Modules/QuickUtilities/      Pomodoro, To-Dos, Clipboard, Camera Mirror (store + view each)
+  Modules/WorldClock/          city model + catalog, analog clock view
+  Modules/Usage/               pricing table, Claude Code / Codex log readers, scanner + store, views
+  Modules/CommandRunner/       Terminal tab (SwiftTerm session + view; folder name kept from the old runner)
   UI/                          notch root view, components, Settings panes
 NotchDeckTests/                Swift Testing suites + fixtures
 Config/                        xcconfig, Info.plist template, entitlements
 Server/license-proxy/          Cloudflare Worker + local dev server
-Scripts/                       license-keygen.swift
+Scripts/                       license-keygen.swift, install-local.sh (optimized build → /Applications)
+distribution.md, business-and-taxes.md   local-only planning notes (git-ignored)
 ```
 
 ---
 
 ## 8. Next steps
 
-1. **Phase 7 hands-on checks:** Usage tab (compare Claude Code numbers with `ccusage` if you have it; add a
-   `gpt-5*` price for Codex), Agent Hooks strip during a Claude Code session, World Clock (add a city),
-   Terminal (vim, top, ssh, Ctrl-C, ⌘V), Lyrics on with Spotify / Music, glass notch while switching apps /
-   spaces, System tab background (pulse gone?).
-2. **Phase 6 hands-on checks:**
-   - Live Activities: unplug / plug in the charger (pill + card), connect AirPods (pill with battery), download a
-     file in a browser (pill, then drag it out of the tab / AirDrop / add to tray).
-   - Pomodoro: set focus to 5 min, start, watch the countdown beside the notch, let it end (chime + pill).
-   - To-Dos: add, tick, edit, quit and reopen (items persist).
-   - Clipboard: set *Paste from Other Apps* → NotchDeck → Allow, copy a few things, click one, ⌘V.
-   - Mirror: allow the camera; close the notch and check the green light goes off.
-2. **System tab:** ✅ styles approved (all four kept). Still worth comparing with Activity Monitor under load.
-2. **Phase 5 (Claude Code approvals):**
-   - Settings → AI & Agents → **Send Test Request**: a card appears; try Approve and Deny.
-   - ✅ **Claude Code:** hook installed; real requests reach the notch; card keys confirmed working.
-   - ✅ **Codex:** believed working by the user (2026-11-26); revisit if anything misbehaves.
-   - Let a task finish → chime + "Done" pulse. Quit NotchDeck and confirm Claude Code still asks in the terminal.
-3. **Phase 4 (AI Chat):** ✅ Claude chat confirmed. Still worth trying: the new model menu (Gemini models),
-   adding a model ID by hand, the open/close shortcut.
-4. **Phase 3 checks:**
-   - Play something in Spotify/Music → collapsed wings show art + visualizer; open the notch → controls, scrub, output picker.
-   - ✅ Media (Spotify + Music controls) and ✅ Join on a Zoom event: confirmed by you.
-   - ✅ Drag a file onto the notch → it opens into the tray and stores it (confirmed after the AppKit rebuild).
-     Still worth trying: drag back out, AirDrop, Zip.
-   - ✅ Calendar (selection, refresh, scrolling): confirmed.
-   - Quit and reopen NotchDeck → it asks again for Spotify/Music control and Calendars.
-   - Calendar: choose calendars in Settings → Modules; check previously missing events now appear; within 15 min
-     of a meeting the collapsed banner appears.
-5. Phase 6: Live Activities (battery, Bluetooth/AirPods, Downloads), Pomodoro, To-Dos, Clipboard, Camera Mirror.
-6. Pick a Development Team in Xcode, which ends the Keychain and Automation re-prompts.
-7. Before beta: production license keypair, deploy the proxy, set the master key secret, Sparkle keys + appcast.
+**Public release** (when the user decides; full plan in `distribution.md`):
+1. User: Apple Developer Program, Developer ID certificate, notarytool credentials; decisions (bundle ID,
+   price, Macs per license, refund policy, per-session permissions default, app icon).
+2. Claude: release config (team, signing, version, Release-only defaults), `Scripts/release.sh` (archive →
+   sign → notarize → DMG → Sparkle appcast), Stripe mode in the license server + D1 schema + email + tests,
+   website / legal drafts.
+3. User: Stripe (test mode first), Cloudflare (`wrangler login`, D1, secrets, deploy), email provider, domain.
+4. Launch checklist (`distribution.md` Part 9): clean-Mac test, live purchase + refund, update 1.0.0 → 1.0.1.
+
+**Hands-on checks still open** (see §0): Terminal, camera light, Bluetooth pill, live Claude plan usage after
+Connect, API key rows, System Monitor color, System tab pulse.
+
+**Feature ideas not built** (from the spec or discussion):
+- Media fallback for browsers / system audio (`mediaremote-adapter`), real audio-level visualizer.
+- Reminders (EventKit) alongside Calendar; multi-item drag-out from the tray.
+- World Clock and Usage polish (the user said they'd review them later).
+- Optional: online license re-validation (so refunds deactivate Macs), crash reporting.
+
+**Already confirmed by the user** (no action): media + Join, File Tray drop, Calendar, Claude chat, Claude Code
+approvals (Codex believed working), System tab styles and height, collapse behavior, hover close delay,
+lyrics sync, visualizer accent, usage settings layout.
 
 ---
 
 ## 9. Log
+
+- **2026-11-26 — install-local.sh fix.** First run failed with `DEST…: unbound variable`: macOS's bash 3.2 reads
+  non-ASCII text right after a bare `$NAME` as part of the name. Variables are now `${NAME}`, messages ASCII, and
+  the build targets this Mac's architecture (no "multiple matching destinations" warning). Verified: installs to
+  /Applications and launches.
+- **2026-11-26 — Paused.** Added `Scripts/install-local.sh` (optimized build into /Applications for personal
+  use). Moved `distribution.md` out of git history (it had never been pushed) and git-ignored it together with
+  the new `business-and-taxes.md` (California sole-proprietor setup, income / self-employment / CA tax,
+  estimated payments, sales tax via Stripe Managed Payments). Rewrote §0 / §8 as a handoff for the next session.
 
 - **2026-11-26 — Distribution plan.** LemonSqueezy is shutting down (sign-ups closed 2026-11-16, payments stop
   2027-03-31); the user will sell through Stripe (one-time payments). Wrote `distribution.md`: Apple Developer ID
