@@ -71,6 +71,9 @@ nonisolated struct MediaSnapshot: Equatable, Sendable {
     var position: TimeInterval
     /// Spotify exposes artwork as a URL; Music returns raw image data via a separate call.
     var artworkURL: URL?
+    /// When `position` was taken: the middle of the AppleScript round trip (100–200 ms), not when the
+    /// reply arrived; interpolating from the reply time made the live position (and lyrics) run late.
+    var readAt = Date()
 
     /// Parses the list returned by the snapshot scripts:
     /// `{state, id, name, artist, album, durationSeconds, positionSeconds[, artworkURL]}` or `{"stopped"}`.
@@ -129,7 +132,10 @@ nonisolated struct MediaProvider: Sendable {
     func snapshot() async throws -> MediaSnapshot? {
         guard source.isRunning else { return nil }
         let source = source
-        return try await runner.run(snapshotScript) { MediaSnapshot.parse($0, source: source) }
+        let started = Date()
+        var reading = try await runner.run(snapshotScript) { MediaSnapshot.parse($0, source: source) }
+        reading?.readAt = started.addingTimeInterval(Date().timeIntervalSince(started) / 2)
+        return reading
     }
 
     /// Raw artwork bytes for the current track (Music only; Spotify uses `artworkURL`).

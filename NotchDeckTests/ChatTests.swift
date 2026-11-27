@@ -135,7 +135,7 @@ struct ChatStreamParsingTests {
         #expect(try AnthropicChatClient.events(from: #"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}"#) == [.text("Hello")])
         #expect(try AnthropicChatClient.events(from: #"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Hmm"}}"#) == [.thinking("Hmm")])
         #expect(try AnthropicChatClient.events(from: #"{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"x"}}"#) == [])
-        #expect(try AnthropicChatClient.events(from: #"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}"#) == [.stop(reason: "end_turn")])
+        #expect(try AnthropicChatClient.events(from: #"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}"#) == [.usage(TokenCounts(output: 3)), .stop(reason: "end_turn")])
         #expect(try AnthropicChatClient.events(from: #"{"type":"ping"}"#) == [])
         #expect(try AnthropicChatClient.events(from: #"{"type":"message_stop"}"#) == nil)
     }

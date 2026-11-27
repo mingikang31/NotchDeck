@@ -8,12 +8,16 @@ struct AgentHooksModuleView: View {
     @Environment(\.settingsOpener) private var settingsOpener
 
     var body: some View {
-        if let approval = hooks.current {
-            ApprovalCard(approval: approval, queued: hooks.pending.count - 1, tokens: tokens)
-                .id(approval.id)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-        } else {
-            IdleAgentView(tokens: tokens) { settingsOpener.open(.aiAgents) }
+        VStack(alignment: .leading, spacing: 6) {
+            if let approval = hooks.current {
+                ApprovalCard(approval: approval, queued: hooks.pending.count - 1, tokens: tokens)
+                    .id(approval.id)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            } else {
+                IdleAgentView(tokens: tokens) { settingsOpener.open(.aiAgents) }
+            }
+            // Live session tokens / estimated cost and MCP servers in use, next to the queue.
+            AgentUsageStrip(tokens: tokens)
         }
     }
 }
@@ -175,7 +179,7 @@ private struct IdleAgentView: View {
                         .font(.system(size: 10.5))
                         .foregroundStyle(tokens.secondaryText)
                 }
-                ForEach(hooks.activity.prefix(5)) { entry in
+                ForEach(hooks.activity.prefix(3)) { entry in
                     HStack(spacing: 5) {
                         Image(systemName: entry.symbol).font(.system(size: 10))
                         Text(entry.text).font(.system(size: 10.5)).lineLimit(1)

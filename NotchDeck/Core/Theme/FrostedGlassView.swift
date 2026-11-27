@@ -59,8 +59,10 @@ struct NotchMaterialView: NSViewRepresentable {
         return view
     }
 
+    /// Only touches properties that changed: re-assigning `material` (even to the same value) can make the
+    /// effect view rebuild its blur, a likely source of the background "pulsing" when content updates.
     func updateNSView(_ view: NotchVisualEffectView, context: Context) {
-        view.material = material
+        if view.material != material { view.material = material }
         view.earRadius = earRadius
         view.bottomRadius = bottomRadius
     }

@@ -112,8 +112,17 @@ private struct AccentSwatch: View {
 
     var body: some View {
         Button(action: action) {
-            Circle()
-                .fill(LinearGradient(colors: choice.gradient, startPoint: .topLeading, endPoint: .bottomTrailing))
+            Group {
+                if choice == .artwork {
+                    // Multicolor "from the album art" swatch.
+                    Circle()
+                        .fill(AngularGradient(colors: [.red, .orange, .yellow, .green, .blue, .purple, .red], center: .center))
+                        .overlay(Image(systemName: "photo").font(.system(size: 8, weight: .bold)).foregroundStyle(.white))
+                } else {
+                    Circle()
+                        .fill(LinearGradient(colors: choice.gradient, startPoint: .topLeading, endPoint: .bottomTrailing))
+                }
+            }
                 .frame(width: 18, height: 18)
                 .overlay {
                     Circle().strokeBorder(Color.primary.opacity(isSelected ? 0.9 : 0), lineWidth: 2).padding(-3)

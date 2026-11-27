@@ -61,6 +61,18 @@ struct BluetoothInfoTests {
         #expect(BluetoothDeviceInfo.symbol(name: "Thing", major: 0x1F, minor: 0) == "dot.radiowaves.left.and.right")
     }
 
+    /// Regression: IOBluetooth calls the connect / disconnect handlers on a background queue. They hop
+    /// to the main thread (calling main-actor code there directly crashed NotchDeck at every launch with
+    /// AirPods connected).
+    @Test func bluetoothCallbacksHopToTheMainThread() async {
+        let ranOnMain = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            DispatchQueue.global().async {
+                BluetoothMonitor.onMain { continuation.resume(returning: Thread.isMainThread) }
+            }
+        }
+        #expect(ranOnMain)
+    }
+
     @Test func headlineBatteryIgnoresTheCase() {
         let buds = BluetoothDeviceInfo(id: "1", name: "AirPods", symbol: "airpods",
                                        batteries: [.init(label: "L", percent: 80), .init(label: "R", percent: 72), .init(label: "Case", percent: 10)])

@@ -50,18 +50,27 @@ nonisolated enum VisualizerStyle: String, CaseIterable, Identifiable, Sendable {
 }
 
 nonisolated enum AccentColorChoice: String, CaseIterable, Identifiable, Sendable {
+    /// Take the colors from the playing track's album art.
+    case artwork
     case rose, violet, blue, teal, amber, graphite
 
     var id: String { rawValue }
 
-    var displayName: String { rawValue.capitalized }
+    var displayName: String { self == .artwork ? "Match Album Art" : rawValue.capitalized }
+
+    /// The visualizer / glow colors: the artwork's palette for `.artwork` (when there is one),
+    /// otherwise this accent's own gradient, whatever is playing.
+    func colors(artworkPalette: [Color]) -> [Color] {
+        if self == .artwork, !artworkPalette.isEmpty { return artworkPalette }
+        return gradient
+    }
 
     var color: Color { gradient[0] }
 
     /// Two-stop gradient used by the ambient glow and visualizer.
     var gradient: [Color] {
         switch self {
-        case .rose: [Color(red: 1.00, green: 0.36, blue: 0.52), Color(red: 1.00, green: 0.55, blue: 0.35)]
+        case .artwork, .rose: [Color(red: 1.00, green: 0.36, blue: 0.52), Color(red: 1.00, green: 0.55, blue: 0.35)]
         case .violet: [Color(red: 0.62, green: 0.40, blue: 1.00), Color(red: 1.00, green: 0.36, blue: 0.72)]
         case .blue: [Color(red: 0.25, green: 0.56, blue: 1.00), Color(red: 0.40, green: 0.85, blue: 1.00)]
         case .teal: [Color(red: 0.16, green: 0.80, blue: 0.70), Color(red: 0.35, green: 0.62, blue: 1.00)]
@@ -125,7 +134,8 @@ nonisolated enum ChatProvider: String, CaseIterable, Codable, Sendable {
 
 /// Every notch module, in default tab order.
 nonisolated enum NotchModule: String, CaseIterable, Codable, Identifiable, Sendable {
-    case media, fileTray, aiChat, agentHooks, systemMonitor, calendar, liveActivities, pomodoro, todos, clipboard, mirror
+    case media, fileTray, aiChat, agentHooks, systemMonitor, calendar, liveActivities, pomodoro, todos, clipboard, mirror,
+         worldClock, usage, commandRunner
 
     var id: String { rawValue }
 
@@ -142,6 +152,9 @@ nonisolated enum NotchModule: String, CaseIterable, Codable, Identifiable, Senda
         case .todos: "To-Dos"
         case .clipboard: "Clipboard"
         case .mirror: "Mirror"
+        case .worldClock: "World Clock"
+        case .usage: "Usage"
+        case .commandRunner: "Terminal"
         }
     }
 
@@ -158,11 +171,14 @@ nonisolated enum NotchModule: String, CaseIterable, Codable, Identifiable, Senda
         case .todos: "checklist"
         case .clipboard: "doc.on.clipboard"
         case .mirror: "camera.fill"
+        case .worldClock: "globe"
+        case .usage: "chart.bar.fill"
+        case .commandRunner: "apple.terminal"
         }
     }
 
     /// Latest roadmap phase that has shipped; modules at or below it are functional.
-    static let shippedThroughPhase = 6
+    static let shippedThroughPhase = 7
 
     /// Modules from a later phase that have already shipped.
     static let shippedEarly: Set<NotchModule> = []
@@ -176,6 +192,7 @@ nonisolated enum NotchModule: String, CaseIterable, Codable, Identifiable, Senda
         case .aiChat: 4
         case .agentHooks: 5
         case .systemMonitor, .liveActivities, .pomodoro, .todos, .clipboard, .mirror: 6
+        case .worldClock, .usage, .commandRunner: 7   // additions after the original spec
         }
     }
 }

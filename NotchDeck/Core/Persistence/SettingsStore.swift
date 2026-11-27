@@ -45,6 +45,10 @@ final class SettingsStore {
         static let pomodoroSound = "notchdeck.pomodoro.sound"
         static let clipboardLimit = "notchdeck.clipboard.limit"
         static let clipboardImages = "notchdeck.clipboard.capturesImages"
+        static let worldClockCities = "notchdeck.worldClock.cities"
+        static let lyricsEnabled = "notchdeck.media.lyricsEnabled"
+        static let lyricsOffset = "notchdeck.media.lyricsOffset"
+        static let customModelPrices = "notchdeck.usage.customPrices"
         static let geometryOutline = "notchdeck.debug.showsGeometryOutline"
         static let startExpanded = "notchdeck.debug.startExpanded"
         static let startModule = "notchdeck.debug.startModule"
@@ -225,6 +229,27 @@ final class SettingsStore {
     }
     var clipboardCapturesImages: Bool { didSet { defaults.set(clipboardCapturesImages, forKey: Key.clipboardImages) } }
 
+    // MARK: World Clock, Lyrics, Usage
+
+    var worldClockCities: [WorldClockCity] {
+        didSet { defaults.set(try? JSONEncoder().encode(worldClockCities), forKey: Key.worldClockCities) }
+    }
+    /// Time-synced lyrics under the collapsed notch (sends track info to lrclib.net). Off by default.
+    var lyricsEnabled: Bool { didSet { defaults.set(lyricsEnabled, forKey: Key.lyricsEnabled) } }
+    /// Manual lyric timing nudge in seconds (positive = lines appear earlier), −1…+1.
+    static let lyricsOffsetRange: ClosedRange<Double> = -1...1
+    var lyricsOffset: Double {
+        didSet {
+            let clamped = min(max((lyricsOffset * 10).rounded() / 10, Self.lyricsOffsetRange.lowerBound), Self.lyricsOffsetRange.upperBound)
+            if clamped != lyricsOffset { lyricsOffset = clamped }
+            defaults.set(clamped, forKey: Key.lyricsOffset)
+        }
+    }
+    /// The user's own per-model prices (override the built-in table; `*` suffix = prefix match).
+    var customModelPrices: [ModelPrice] {
+        didSet { defaults.set(try? JSONEncoder().encode(customModelPrices), forKey: Key.customModelPrices) }
+    }
+
     // MARK: Debug
 
     /// Outlines the computed cutout to verify hardware alignment.
@@ -292,6 +317,13 @@ final class SettingsStore {
         let storedLimit = defaults.object(forKey: Key.clipboardLimit) as? Int ?? 25
         clipboardHistoryLimit = Self.clipboardLimits.contains(storedLimit) ? storedLimit : 25
         clipboardCapturesImages = defaults.object(forKey: Key.clipboardImages) as? Bool ?? true
+
+        worldClockCities = defaults.data(forKey: Key.worldClockCities)
+            .flatMap { try? JSONDecoder().decode([WorldClockCity].self, from: $0) } ?? CityCatalog.defaults
+        lyricsEnabled = defaults.bool(forKey: Key.lyricsEnabled)
+        lyricsOffset = min(max(defaults.double(forKey: Key.lyricsOffset), Self.lyricsOffsetRange.lowerBound), Self.lyricsOffsetRange.upperBound)
+        customModelPrices = defaults.data(forKey: Key.customModelPrices)
+            .flatMap { try? JSONDecoder().decode([ModelPrice].self, from: $0) } ?? []
 
         showsGeometryOutline = defaults.bool(forKey: Key.geometryOutline)
         startExpanded = defaults.bool(forKey: Key.startExpanded)

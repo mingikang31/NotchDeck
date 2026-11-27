@@ -183,6 +183,8 @@ final class AgentHookStore {
     /// Wired by the container: show the approval card / tuck the notch away again.
     @ObservationIgnored var onApprovalNeeded: () -> Void = {}
     @ObservationIgnored var onQueueEmptied: () -> Void = {}
+    /// A Claude Code / Codex task finished (its usage log has new entries).
+    @ObservationIgnored var onTaskFinished: () -> Void = {}
 
     @ObservationIgnored private let settings: SettingsStore
     @ObservationIgnored private let configURLs: [HookAgent: URL]
@@ -372,6 +374,7 @@ final class AgentHookStore {
             date: Date()
         )
         lastFinished = event
+        onTaskFinished()
         log("\(agent.displayName) finished · \(event.project)", symbol: "sparkles")
         if settings.agentChimeEnabled { NSSound(named: "Glass")?.play() }
         Task { [weak self] in

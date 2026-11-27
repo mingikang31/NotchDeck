@@ -102,6 +102,8 @@ nonisolated enum ChatStreamEvent: Equatable, Sendable {
     /// Informational line, e.g. a refusal fallback switched models.
     case notice(String)
     case stop(reason: String?)
+    /// Token usage so far (cumulative; the chat store keeps the field-wise maximum).
+    case usage(TokenCounts)
 }
 
 nonisolated enum ChatError: LocalizedError, Equatable, Sendable {

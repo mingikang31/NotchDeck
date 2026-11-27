@@ -36,9 +36,12 @@ struct ModulesSettingsPane: View {
 
             CalendarModuleSettings()
             SystemMonitorSettings()
+            MediaLyricsSettings()
             LiveActivitiesSettings()
             PomodoroSettings()
             ClipboardSettings()
+            WorldClockSettings()
+            UsagePriceSettings()
         }
         .padding(20)
         }
@@ -319,5 +322,187 @@ private struct ModuleRow: View {
                 .accessibilityLabel("Enable \(configuration.module.displayName)")
         }
         .padding(.vertical, 3)
+    }
+}
+
+
+/// Lyrics under the notch (Media).
+private struct MediaLyricsSettings: View {
+    @Environment(SettingsStore.self) private var settings
+
+    var body: some View {
+        @Bindable var settings = settings
+        GroupBox {
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Show time-synced lyrics under the notch while music plays", isOn: $settings.lyricsEnabled)
+                HStack {
+                    Stepper(value: $settings.lyricsOffset, in: SettingsStore.lyricsOffsetRange, step: 0.1) {
+                        Text("Timing: \(Self.describe(settings.lyricsOffset))")
+                    }
+                    .fixedSize()
+                    if settings.lyricsOffset != 0 {
+                        Button("Reset") { settings.lyricsOffset = 0 }
+                    }
+                    Spacer()
+                }
+                .disabled(!settings.lyricsEnabled)
+                .help("Bluetooth and AirPlay delay is already accounted for. Nudge if lines still come early or late.")
+                Text("The collapsed notch grows by one line and follows the song. Lyrics come from lrclib.net, so each new song's title, artist, album and length are sent there. Also in the Media tab (speech-bubble button).")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(6)
+        } label: {
+            Label("Media · Lyrics", systemImage: "quote.bubble")
+        }
+    }
+
+    static func describe(_ offset: Double) -> String {
+        if abs(offset) < 0.05 { return "in sync" }
+        return String(format: "%.1f s %@", abs(offset), offset > 0 ? "earlier" : "later")
+    }
+}
+
+/// Cities on the World Clock: search to add, reorder, remove.
+private struct WorldClockSettings: View {
+    @Environment(SettingsStore.self) private var settings
+    @State private var query = ""
+
+    var body: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(settings.worldClockCities.enumerated()), id: \.element.id) { index, city in
+                    HStack {
+                        Text(city.name)
+                        Text(CityCatalog.region(for: city.timeZoneID)).foregroundStyle(.secondary)
+                        Text(city.relativeDescription(at: Date())).font(.callout).foregroundStyle(.secondary)
+                        Spacer()
+                        Button { move(index, by: -1) } label: { Image(systemName: "chevron.up") }
+                            .buttonStyle(.borderless).disabled(index == 0)
+                        Button { move(index, by: 1) } label: { Image(systemName: "chevron.down") }
+                            .buttonStyle(.borderless).disabled(index == settings.worldClockCities.count - 1)
+                        Button { settings.worldClockCities.remove(at: index) } label: { Image(systemName: "minus.circle.fill") }
+                            .buttonStyle(.borderless)
+                            .help("Remove \(city.name)")
+                    }
+                }
+                HStack {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("Add a city (e.g. Seoul, Paris, San Francisco)", text: $query)
+                        .textFieldStyle(.roundedBorder)
+                }
+                ForEach(CityCatalog.search(query, limit: 6)) { city in
+                    let added = settings.worldClockCities.contains(city)
+                    Button {
+                        if !added { settings.worldClockCities.append(city) }
+                        query = ""
+                    } label: {
+                        HStack {
+                            Text(city.name)
+                            Text(CityCatalog.region(for: city.timeZoneID)).foregroundStyle(.secondary)
+                            Spacer()
+                            Text(Date().formatted(Date.FormatStyle(date: .omitted, time: .shortened, timeZone: city.timeZone)))
+                                .foregroundStyle(.secondary)
+                            Image(systemName: added ? "checkmark" : "plus.circle")
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(added)
+                }
+            }
+            .padding(6)
+        } label: {
+            Label("World Clock", systemImage: "globe")
+        }
+    }
+
+    private func move(_ index: Int, by delta: Int) {
+        var cities = settings.worldClockCities
+        let target = index + delta
+        guard cities.indices.contains(target) else { return }
+        cities.swapAt(index, target)
+        settings.worldClockCities = cities
+    }
+}
+
+/// Prices used for cost estimates: the built-in Claude table plus the user's own rows.
+private struct UsagePriceSettings: View {
+    @Environment(SettingsStore.self) private var settings
+    @State private var showsBuiltIn = false
+    @State private var draft = ModelPrice.row("", 0, 0)
+    @State private var draftCacheRead = ""
+
+    var body: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Cost estimates use list prices per million tokens. Add a row for any model without one (e.g. Codex's OpenAI models or Gemini); end a pattern with * to match a family (gpt-5*). Your rows override the built-in ones.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !settings.customModelPrices.isEmpty {
+                    ForEach(settings.customModelPrices) { price in
+                        HStack {
+                            Text(price.pattern).font(.system(.body, design: .monospaced))
+                            Spacer()
+                            Text(Self.describe(price)).font(.callout).foregroundStyle(.secondary)
+                            Button { settings.customModelPrices.removeAll { $0 == price } } label: {
+                                Image(systemName: "minus.circle.fill")
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                }
+
+                HStack(spacing: 6) {
+                    TextField("model or pattern*", text: $draft.pattern)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 170)
+                    TextField("input $", value: $draft.input, format: .number).textFieldStyle(.roundedBorder).frame(width: 64)
+                    TextField("output $", value: $draft.output, format: .number).textFieldStyle(.roundedBorder).frame(width: 64)
+                    TextField("cached $", text: $draftCacheRead).textFieldStyle(.roundedBorder).frame(width: 64)
+                        .help("Cache-read price; blank = 10% of input")
+                    Button("Add") { addDraft() }
+                        .disabled(draft.pattern.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+
+                DisclosureGroup("Built-in Claude prices", isExpanded: $showsBuiltIn) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(ModelPricing.builtIn) { price in
+                            HStack {
+                                Text(price.pattern).font(.system(.callout, design: .monospaced))
+                                Spacer()
+                                Text(Self.describe(price)).font(.callout).foregroundStyle(.secondary)
+                            }
+                        }
+                        Text(ModelPricing.sourceNote + ". Claude Haiku 5.5 prompts over 100K tokens are priced 5×; fast mode 2×; US-only inference 1.1×.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 4)
+                    }
+                    .padding(.top, 4)
+                }
+            }
+            .padding(6)
+        } label: {
+            Label("Usage · Prices", systemImage: "dollarsign.circle")
+        }
+    }
+
+    private func addDraft() {
+        var row = ModelPrice.row(draft.pattern.trimmingCharacters(in: .whitespaces).lowercased(), draft.input, draft.output,
+                                 cacheRead: Double(draftCacheRead))
+        row.pattern = row.pattern.isEmpty ? draft.pattern : row.pattern
+        settings.customModelPrices.removeAll { $0.pattern == row.pattern }
+        settings.customModelPrices.append(row)
+        draft = ModelPrice.row("", 0, 0)
+        draftCacheRead = ""
+    }
+
+    static func describe(_ price: ModelPrice) -> String {
+        func money(_ value: Double) -> String { value.formatted(.currency(code: "USD").precision(.fractionLength(0...3))) }
+        return "\(money(price.input)) in · \(money(price.output)) out · \(money(price.cacheRead)) cached"
     }
 }

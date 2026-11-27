@@ -149,6 +149,22 @@ struct CollapseBehaviorTests {
         try await h.expectCollapses()
     }
 
+    @Test func focusedTerminalKeepsItOpen() async throws {
+        let h = try Harness()
+        defer { h.tearDown() }
+        h.controller.model.onTap()
+        let session = TerminalSession()
+        let terminal = session.terminalView()
+        h.controller.panel.contentView?.addSubview(terminal)
+        h.controller.panel.makeFirstResponder(terminal)
+        defer { terminal.send(txt: "exit\r") }
+        #expect(h.controller.isEditingDraft)
+        h.move(to: h.outside)
+        try await h.expectStaysOpen()
+        h.controller.handleMouseDown(at: h.outside)   // a click outside still closes it
+        #expect(h.controller.model.state == .collapsed)
+    }
+
     @Test func chatShortcutStaysOpenUntilAnotherTabIsClicked() async throws {
         let h = try Harness()
         defer { h.tearDown() }

@@ -22,6 +22,9 @@ final class ChatStore {
     /// Wired by the container: re-open the notch on the chat / hide it (screenshot capture).
     @ObservationIgnored var onShowChat: () -> Void = {}
     @ObservationIgnored var onHideNotch: () -> Void = {}
+    /// Token usage of a finished reply (model actually used, provider, tokens) for the Usage module.
+    @ObservationIgnored var onUsage: (String, ChatProvider, TokenCounts) -> Void = { _, _, _ in }
+    @ObservationIgnored private var replyUsage = TokenCounts()
 
     @ObservationIgnored private let settings: SettingsStore
     @ObservationIgnored private let apiKeys: APIKeyStore
@@ -236,7 +239,10 @@ final class ChatStore {
     }
 
     private func runReply(replyID: ChatMessage.ID, choice: ChatModelRef, history: [ChatMessage]) async {
+        replyUsage = TokenCounts()
         defer {
+            let servedBy = current.messages.first(where: { $0.id == replyID })?.modelID ?? choice.id
+            if !replyUsage.isEmpty { onUsage(servedBy, choice.provider, replyUsage) }
             flush(into: replyID)
             update(replyID) { $0.isComplete = true }
             isStreaming = false
@@ -295,6 +301,8 @@ final class ChatStore {
                 scheduleFlush(into: replyID)
             case .notice(let notice):
                 update(replyID) { $0.notice = notice }
+            case .usage(let tokens):
+                replyUsage = replyUsage.merged(with: tokens)
             case .stop(let reason):
                 if reason == "refusal" {
                     // The whole chain declined: discard the partial output.

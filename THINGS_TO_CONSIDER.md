@@ -4,7 +4,7 @@ The running notebook for this project: what exists, how to work it, what to watc
 what's next. Kept up to date as each phase lands. The full product spec is
 [`notchdeck_technical_specification.txt`](notchdeck_technical_specification.txt).
 
-_Last updated: 2026-11-26, Phase 6 committed; all roadmap phases built._
+_Last updated: 2026-11-26, Phase 6 committed; Phase 7 (post-spec modules) built, needs hands-on check._
 
 ---
 
@@ -18,6 +18,8 @@ _Last updated: 2026-11-26, Phase 6 committed; all roadmap phases built._
 | 4 | Embedded AI Chat (Claude + Gemini streaming, Markdown, attachments, focus shortcut) | ✅ Done (Claude chat confirmed) |
 | 5 | Claude Code & Codex agent hooks (127.0.0.1 server, hook installer, Approve/Deny card) | ✅ Done (Claude Code confirmed; Codex believed working) |
 | 6 | Live Activities (battery, Bluetooth, Downloads), Pomodoro, To-Dos, Clipboard, Camera Mirror | ✅ Done (initial review OK; tweaks to come) |
+| 7 | Post-spec: World Clock, Usage / token-cost tracker (AI Chat + Claude Code + Codex, MCP servers), Terminal, synced lyrics | ✅ Built (needs hands-on check) |
+| ✗ | Menu bar overflow drawer | Not built: macOS 27 already has it (see §4) |
 | + | System Monitor tab (CPU / GPU / memory, asitop/macmon-style), requested 2026-11-26 | ✅ Done (styles approved) |
 
 ---
@@ -150,6 +152,28 @@ Or open `NotchDeck.xcodeproj` in Xcode and press ⌘R / ⌘U. New `.swift` files
 - **Clipboard** (clipboard tab): the last 25 clips (text, images, copied files). Click one to put it back on
   the clipboard, then ⌘V. Memory only, never written to disk, cleared when NotchDeck quits. Password-manager
   copies are skipped. **Needs one macOS setting** to record by itself (see §4 Clipboard).
+- **World Clock** (globe tab): an analog face per city (light by day, dark by night), "Today, +3HRS" style offset
+  and the digital time; right-click a clock to move or remove it. Add cities in Settings → Modules → World
+  Clock (search: "seoul", "san fran", …). Defaults: here, New York, London, Tokyo.
+- **Usage** (chart tab): Today / 7 days / 30 days. Cards per source (AI Chat, Claude Code, Codex) with cost,
+  tokens and in / cache / out split; a by-model breakdown; plan limits (Codex plan % and reset; Claude Code
+  only when a limit is close or hit); configured MCP servers (green dot = used in the active session).
+  The **Agent Hooks** tab shows a one-line version under the approval queue (active session tokens and cost,
+  MCP servers used, today's totals).
+  - AI Chat cost is real (your API keys); Claude Code / Codex cost is "≈" an estimate at API list prices.
+  - No price for a model → cost "—" (or "+" when partly priced). Add prices in Settings → Modules → Usage ·
+    Prices (e.g. `gpt-5*` for Codex).
+- **Terminal** (terminal tab): a real terminal (xterm emulation in a PTY, via SwiftTerm) running your login
+  shell, like Terminal.app: prompts, colors, tab completion, `cd`, vim / top / ssh / sudo, Ctrl-C all work.
+  Clicking the Terminal tab puts the cursor in it (or click the terminal); it keeps focus between commands.
+  While it has keyboard focus the notch stays open (moving the pointer away doesn't close it); click outside or
+  press ⌃⌥N to close. The session keeps running when the notch closes. **New Session** (top right) ends the
+  shell and everything in it and starts a fresh one (also offered after `exit`). ⌘C / ⌘V / ⌘A, ⌘K clears,
+  ⌘+ / ⌘− text size. Option types special characters (not Meta). Same look as the AI Chat: 12.5 pt system font
+  in its monospaced design (SF Mono; a terminal needs fixed-width columns) on the chat composer's background.
+- **Lyrics** (off by default): Media tab → speech-bubble button, or Settings → Modules → Media · Lyrics. While
+  music plays the collapsed notch grows one line (same width as the collapsed notch; long lines are
+  truncated) and shows the current lyric in time with the song.
 - **Mirror** (camera tab): mirrored camera preview; pick another camera (Continuity Camera, external) from the
   top-right button. The camera runs only while the tab is open. Shortcut: *Toggle Camera Mirror*.
 
@@ -524,6 +548,83 @@ which gives the app a **stable identity across every version and update**.
   notch turns the green light off). Needs the hardened-runtime camera entitlement (added) and
   `NSCameraUsageDescription`; Continuity Camera is allowed via `NSCameraUseContinuityCameraDeviceType`.
 
+### Phase 7 modules
+- **Menu bar drawer not built.** On this Mac (macOS 27) the system already hides overflowing menu bar
+  items behind its own **"Show Hidden Menu Bar Items"** button right of the notch, and only Apple's visible
+  items (Battery, Wi-Fi, Control Center, Clock) are exposed to other apps through Accessibility; hidden
+  third-party items (NotchDeck's own icon included) can't be listed or opened individually. The old
+  per-item status windows are gone too (the whole bar is one `MenuBarAgent` window). A drawer could only
+  press Apple's button, so it was skipped. Checked 2026-11-26 with CGWindowList and AX probes.
+- **Usage sources:** Claude Code `~/.claude/projects/**/*.jsonl` (assistant lines' `message.usage`, de-duplicated
+  by message ID + request ID, since one message is logged once per content block; `quotaLimits` for plan
+  limits; `mcp__<server>__` tool calls for MCP use). Codex `~/.codex/sessions/**/rollout-*.jsonl`
+  (`token_count` events: `last_token_usage` counted when the running total grows; cached tokens are inside
+  OpenAI's input count and are split out; `rate_limits` for plan %). MCP config from `~/.claude.json`,
+  `<project>/.mcp.json`, `~/.codex/config.toml`. Only usage fields are read; nothing leaves the Mac.
+  Files are read incrementally (byte offsets); a cheap substring pre-filter skips the huge request lines.
+  First scan of this Mac's logs: 0.24 s; refreshes ~2 ms. Polls every 15 s only while Usage or Agent Hooks
+  is open, plus once when an agent task finishes.
+- **AI Chat usage** comes from the API responses (Anthropic `message_start` / `message_delta` usage, Gemini
+  `usageMetadata`, OpenAI-compatible `stream_options.include_usage`) and is saved to
+  `Application Support/NotchDeck/usage-chat.json` (90 days).
+- **Prices:** built-in table = Anthropic's pricing page fetched 2026-11-26 (incl. 5 m / 1 h cache writes,
+  per-model cache-read rates, Haiku 5.5's 5× above 100K-token prompts, fast mode 2×, US-only 1.1×). No OpenAI or
+  Gemini prices are built in (not verified); add them as custom rows. Update the table when prices change.
+- **Lyrics** come from lrclib.net (free, no key). When on, each new track's title / artist / album / length is
+  sent there (said in Settings). Exact match first, then search by title + artist within ±4 s of the length.
+  Results cached per track for the session.
+- **Lyric timing (fixed 2026-11-26, user saw lyrics lagging on Bluetooth):** three causes, all fixed:
+  1. My "redraw only at line changes" optimization scheduled redraws at exactly a line's start; rounding could
+     land a hair before it and keep showing the *previous* line until the next redraw (a whole line late).
+     Redraws now land 20 ms after, with 1 ms tolerance when picking the line.
+  2. Positions were timestamped when the AppleScript reply arrived (100–200 ms after the position was taken;
+     later still with Music and Spotify both open). Now stamped at the round trip's midpoint (`readAt`).
+  3. Bluetooth / AirPlay output delay: the position is the player's, but you hear it later (this Mac's
+     "gusher 3.0" headphones report ~171 ms). `OutputLatency` reads the default output device's latency +
+     safety offset + buffer + stream latency from CoreAudio and subtracts it.
+  Lines show 0.1 s early. Settings → Modules → Media · Lyrics → *Timing* nudges ±1 s in 0.1 s steps.
+  Verified against Spotify on Bluetooth: three captures each showed the line being sung at that moment. Hover / clicks pass through the lyric
+  strip (it's below the hover zone).
+- **Terminal** uses SwiftTerm **pinned to exactly 1.10.1** (Feb 2026). Releases from 1.11.0 on apply a
+  package *build plugin* to the macOS library, which Xcode makes you trust separately (and `xcodebuild`
+  needs `-skipPackagePluginValidation`); 1.10.1 is the last without it. Revisit when upgrading.
+  The shell starts as a login shell (`-zsh` argv[0]) with `TERM=xterm-256color`, in your home folder, the
+  first time the tab opens. One `NotchTerminalView` is kept by `TerminalSession` and re-attached each time
+  the tab is shown. `needsPanelToBecomeKey` is overridden so a click gives the non-activating panel keyboard
+  focus. SwiftTerm sometimes reports the raw `waitpid` status as the exit code; it's decoded.
+  (Replaced the one-shot Command Runner, which the user found unreliable.)
+  - **Typing stopped after the first Return (reported 2026-11-26):** most likely SwiftUI taking keyboard focus
+    back from the embedded AppKit terminal when the tab redrew (the shell retitles the window on every command).
+    Fix: the hosting container watches the window's first responder and hands focus back to the terminal when
+    anything other than a text field takes it (only while the panel is key and you'd been typing there); title
+    updates no longer cause redraws. Not reproducible in unit tests (test windows can't become key), so
+    confirm by hand.
+  - New Session builds a new terminal view; the old one's delegate is detached first, because its exit report
+    can arrive after the new shell starts.
+- **Camera light after leaving Mirror:** the camera used to stop only when the Mirror view was removed (after
+  the tab-switch fade) and the stop then queued behind any start in progress. Now the panel controller turns it
+  off the moment Mirror stops being the visible tab (tab switch or collapse) and cancels a pending start.
+- Tab strip now scrolls sideways when the enabled modules don't fit (14 modules).
+
+### Performance and the glass / black notch (fixed 2026-11-26)
+- **Glass ↔ black flipping:** the collapsed notch on a real notch display was always pure black (to vanish into
+  the camera housing), even with wings / lyrics showing, while hover (peek) used the theme. So on the desktop
+  it flipped black ↔ glass as the pointer came and went (invisible on a black full-screen menu bar). Now black
+  only when the collapsed notch is exactly the housing (nothing beside / below it), fading over 0.25 s, and no
+  blur view is kept behind it then (an invisible live blur still costs the window server).
+- **Pulsing background (likely cause, not confirmed visually):** `NotchMaterialView.updateNSView` re-assigned
+  `material` on every SwiftUI update; re-setting it can rebuild the blur. Now only changed properties are set.
+- **CPU:** the Usage scanner was the main CPU consumer while Claude Code was busy: its pre-filter let
+  user / request lines through (they contain "assistant" and "usage"), each was JSON-decoded, and timestamps
+  went through ISO8601DateFormatter. Now: exact `"type":"assistant"` + `"output_tokens"` pre-filter, a manual
+  timestamp parser, regex-free model-name normalization, a price cache, cached summaries (recomputed only
+  when records or prices change), and no republish when a refresh finds nothing new.
+- Lyric line redraws are scheduled at each line's start time (re-planned on pause / seek / track change)
+  instead of polling 5×/s.
+- Measured on this Mac (collapsed, Spotify playing, glass): NotchDeck ≈ 9.5 % CPU averaged over 10 s (from
+  `ps` CPU time; `top` / `sample` readings overstate it). WindowServer ≈ 37 % without NotchDeck vs ≈ 45 % with
+  it: the glass blur behind the 30 fps visualizer.
+
 ### Clipboard
 - **macOS asks before an app reads what other apps copied** (`NSPasteboard.accessBehavior`, macOS 15.4+).
   Polling `changeCount` never asks, but reading the contents would show a prompt *on every copy* unless the
@@ -669,7 +770,11 @@ Scripts/                       license-keygen.swift
 
 ## 8. Next steps
 
-1. **Phase 6 hands-on checks:**
+1. **Phase 7 hands-on checks:** Usage tab (compare Claude Code numbers with `ccusage` if you have it; add a
+   `gpt-5*` price for Codex), Agent Hooks strip during a Claude Code session, World Clock (add a city),
+   Terminal (vim, top, ssh, Ctrl-C, ⌘V), Lyrics on with Spotify / Music, glass notch while switching apps /
+   spaces, System tab background (pulse gone?).
+2. **Phase 6 hands-on checks:**
    - Live Activities: unplug / plug in the charger (pill + card), connect AirPods (pill with battery), download a
      file in a browser (pill, then drag it out of the tab / AirDrop / add to tray).
    - Pomodoro: set focus to 5 min, start, watch the countdown beside the notch, let it end (chime + pill).
@@ -700,6 +805,33 @@ Scripts/                       license-keygen.swift
 ---
 
 ## 9. Log
+
+- **2026-11-26 — Visualizer accent color.** The accent color was only used when the track had no album art,
+  i.e. never while music played (the artwork palette always won). The chosen accent now always colors the
+  visualizer (wings and Media tab); a new first option, **Match Album Art**, keeps the artwork-palette look.
+  217 tests.
+
+- **2026-11-26 — Crash with AirPods connected + lyric timing.** IOBluetooth posts connect / disconnect on a
+  background queue; the main-actor `@objc` handlers tripped Swift 6's executor check and NotchDeck crashed on
+  every launch while a Bluetooth device was connected. Handlers are now `nonisolated` and hop to main.
+  Lyric timing: off-by-one-line redraw rounding, late position timestamps, and Bluetooth output delay fixed;
+  Timing nudge setting. 216 tests.
+
+- **2026-11-26 — Terminal focus, New Session, look; camera stop.** Terminal keeps keyboard focus between commands
+  (focus restoration) and gets it when its tab is clicked; New Session button; chat-matching font and
+  background. Camera stops immediately when leaving Mirror. 212 tests.
+
+- **2026-11-26 — Lag / glass / lyrics / terminal fixes.** User reported lag, a pulsing background, glass ↔ black
+  flipping when switching apps, wide lyrics, and an unreliable command runner. Fixed: black only for the bare
+  idle notch (fade, no hidden blur), material set only on change, lyrics keep the notch width, usage scanning
+  made cheap (pre-filter, timestamp parser, caches), lyric redraws scheduled. Command Runner replaced by a real
+  terminal (SwiftTerm 1.10.1, login shell in a PTY). 210 tests. Collapsed CPU ≈ 9.5 %.
+
+- **2026-11-26 — Phase 7 built.** World Clock, Usage tracker (AI Chat usage from API responses; Claude Code and
+  Codex from local logs; plan limits; MCP servers; strip in Agent Hooks), Command Runner (one-shot login
+  shell, cd / clear built-ins, Stop), synced lyrics (LRCLIB, off by default; collapsed notch grows one line),
+  scrollable tab strip. Pricing table from Anthropic's pricing page. Menu bar drawer dropped (macOS 27 has its own
+  hidden-items button; hidden items aren't exposed). 210 tests.
 
 - **2026-11-26 — Hover close delay.** New Settings → General slider (0–500 ms, default 200 ms; max lowered from 1000 ms at the user’s request) replacing the
   fixed 220 ms pointer-exit grace. 183 tests.

@@ -11,6 +11,10 @@ struct NotchRootView: View {
     @Environment(\.settingsOpener) private var settingsOpener
     @Environment(LicenseManager.self) private var license
     @Environment(AgentHookStore.self) private var agentHooks
+    @Environment(LyricsStore.self) private var lyrics
+
+    /// The collapsed notch grows by one line (same width) while lyrics show.
+    static let lyricsStripHeight: CGFloat = 22
 
     var body: some View {
         let geometry = model.geometry
@@ -25,8 +29,13 @@ struct NotchRootView: View {
             hasPendingApproval: !agentHooks.pending.isEmpty,
             fittedHeight: activeModule.flatMap { model.fittedBodyHeights[$0] }
         )
-        let metrics = geometry.metrics(for: state, wing: wing, layout: layout)
         let expandedMetrics = geometry.metrics(for: .expanded, layout: layout)
+        let topRowHeight = geometry.metrics(for: state, wing: wing, layout: layout).bodySize.height
+        let showsLyrics = state != .expanded && license.isUnlocked && settings.enabledModules.contains(.media) && lyrics.isShowing
+        let metrics = Self.metrics(geometry.metrics(for: state, wing: wing, layout: layout), lyrics: showsLyrics)
+        // Pure black only while the collapsed notch is exactly the camera housing (nothing beside or
+        // below it), so it disappears into the hardware. Wings and lyrics follow the theme.
+        let blendsIntoHardware = geometry.kind == .hardwareNotch && state == .collapsed && activity == nil && !showsLyrics
         let tokens = themeEngine.tokens
 
         ZStack(alignment: .top) {
@@ -36,7 +45,7 @@ struct NotchRootView: View {
                 tokens: tokens,
                 // On real hardware the collapsed silhouette sits over the camera housing,
                 // so it stays pure black in both themes to stay invisible.
-                hardwareBlackness: geometry.kind == .hardwareNotch && state == .collapsed ? 1 : 0,
+                hardwareBlackness: blendsIntoHardware ? 1 : 0,
                 shadowOpacity: state == .expanded ? tokens.shadowOpacity : 0
             ) {
                 if state == .expanded {
@@ -53,17 +62,29 @@ struct NotchRootView: View {
                                 removal: .opacity.animation(.easeIn(duration: 0.1))
                             )
                         )
-                } else if let activity {
-                    LiveActivityWings(
-                        activity: activity,
-                        cutoutWidth: geometry.cutout.width + (state == .peek ? NotchGeometry.peekGrowth.width : 0),
-                        wing: wing,
-                        height: metrics.bodySize.height
-                    )
+                } else if activity != nil || showsLyrics {
+                    VStack(spacing: 0) {
+                        if let activity {
+                            LiveActivityWings(
+                                activity: activity,
+                                cutoutWidth: geometry.cutout.width + (state == .peek ? NotchGeometry.peekGrowth.width : 0),
+                                wing: wing,
+                                height: topRowHeight
+                            )
+                        } else {
+                            Color.clear.frame(height: topRowHeight)
+                        }
+                        if showsLyrics {
+                            LyricsStrip()
+                                .frame(width: metrics.bodySize.width, height: Self.lyricsStripHeight, alignment: .top)
+                                .transition(.opacity)
+                        }
+                    }
                     .transition(.opacity.animation(.easeOut(duration: 0.2)))
                 }
             }
             .animation(NotchMotion.animation(to: .peek), value: activity)
+            .animation(NotchMotion.animation(to: .peek), value: showsLyrics)
             .onTapGesture {
                 if model.state != .expanded { model.onTap() }
             }
@@ -87,6 +108,17 @@ struct NotchRootView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .ignoresSafeArea()
+    }
+}
+
+extension NotchRootView {
+    /// Collapsed / peek metrics, grown by one line (and widened) while lyrics show.
+    static func metrics(_ base: NotchShapeMetrics, lyrics: Bool) -> NotchShapeMetrics {
+        guard lyrics else { return base }
+        var metrics = base
+        metrics.bodySize.height += lyricsStripHeight
+        metrics.bottomRadius = max(metrics.bottomRadius, 12)
+        return metrics
     }
 }
 
@@ -155,7 +187,9 @@ struct NotchBody<Content: View>: View, Animatable {
     @ViewBuilder
     private func surface(_ shape: NotchMaskShape) -> some View {
         ZStack {
-            if theme == .frostedGlass, let material = tokens.material {
+            // No blur view behind the solid-black idle notch: it would be invisible but still cost
+            // the window server a live blur.
+            if theme == .frostedGlass, hardwareBlackness < 1, let material = tokens.material {
                 ZStack {
                     NotchMaterialView(material: material, earRadius: earRadius, bottomRadius: bottomRadius)
                     shape.fill(tokens.materialTint)
@@ -178,6 +212,8 @@ struct NotchBody<Content: View>: View, Animatable {
             shape.fill(Color.black)
                 .opacity(theme == .classicBlack ? 1 : hardwareBlackness)
         }
+        // Fade between black and glass instead of switching in one frame.
+        .animation(.easeInOut(duration: 0.25), value: hardwareBlackness)
     }
 }
 

@@ -19,6 +19,8 @@ final class NotchPanelController {
     private let license: LicenseManager
     private let chat: ChatStore
     private let agentHooks: AgentHookStore
+    private let mirror: CameraMirrorStore
+    private let terminal: TerminalSession
     private var dwellTask: Task<Void, Never>?
     private var shrinkTask: Task<Void, Never>?
     private var collapseTask: Task<Void, Never>?
@@ -40,6 +42,8 @@ final class NotchPanelController {
         self.license = services.licenseManager
         self.chat = services.chat
         self.agentHooks = services.agentHooks
+        self.mirror = services.mirror
+        self.terminal = services.terminal
 
         let geometry = screen.notchGeometry(preset: settings.sizePreset)
         model = NotchViewModel(
@@ -79,6 +83,15 @@ final class NotchPanelController {
             return "\(String(describing: self.model.selectedModule))|\(self.settings.enabledModules.map(\.rawValue))|\(self.license.isUnlocked)|\(self.agentHooks.pending.isEmpty)|\(self.model.fittedBodyHeights)"
         }) { [weak self] _ in
             self?.syncPanelFrame()
+        }
+
+        // The camera runs only while the Mirror tab is actually on screen: switching tabs or closing
+        // the notch turns it off immediately (not after the view's fade-out).
+        observeContinuously({ [weak self] in
+            guard let self else { return false }
+            return self.model.state == .expanded && self.activeModule == .mirror
+        }) { [weak self] showingMirror in
+            if !showingMirror { self?.mirror.deactivate() }
         }
     }
 
@@ -183,6 +196,7 @@ final class NotchPanelController {
 
     /// A tab click: leaving the tab a shortcut pinned open makes the notch collapse on pointer exit again.
     private func userSelected(_ module: NotchModule) {
+        if module == .commandRunner { focusTerminalSoon() }
         if isPinnedOpen, let pinnedModule, pinnedModule != module {
             isPinnedOpen = false
             self.pinnedModule = nil
@@ -207,6 +221,22 @@ final class NotchPanelController {
             model.selectedModule = toast.module
         }
         transition(to: .expanded)
+    }
+
+    /// Clicking the Terminal tab puts the cursor in the terminal (like opening the AI Chat), once the
+    /// tab's view is attached.
+    private func focusTerminalSoon() {
+        Task { [weak self] in
+            for _ in 0..<10 {
+                try? await Task.sleep(for: .milliseconds(40))
+                guard let self, self.model.state == .expanded, self.activeModule == .commandRunner else { return }
+                if self.terminal.terminalView().window === self.panel {
+                    self.panel.allowsKeyFocus = true
+                    self.terminal.focus()
+                    return
+                }
+            }
+        }
     }
 
     /// A module shortcut (Camera Mirror): open on that tab, or close if it's already showing.
@@ -354,7 +384,10 @@ final class NotchPanelController {
     /// True while a text field in the notch has focus *and* holds unsent text (a chat draft, a to-do
     /// being typed). Keyboard focus alone isn't enough: the panel stays key after a text field was
     /// used, which used to block pointer-exit collapse until the user clicked outside.
+    /// The Terminal tab with keyboard focus counts too (you're typing in it; a running program may
+    /// still be printing): it closes on a click outside or the toggle shortcut instead.
     var isEditingDraft: Bool {
+        if panel.firstResponder is NotchTerminalView { return true }
         guard let editor = panel.firstResponder as? NSTextView else { return false }
         return !editor.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }

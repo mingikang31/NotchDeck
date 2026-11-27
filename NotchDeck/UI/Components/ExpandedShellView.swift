@@ -97,6 +97,9 @@ struct ExpandedShellView: View {
         case .todos: TodosModuleView(tokens: tokens)
         case .clipboard: ClipboardModuleView(tokens: tokens)
         case .mirror: MirrorModuleView(tokens: tokens)
+        case .worldClock: WorldClockModuleView(tokens: tokens)
+        case .usage: UsageModuleView(tokens: tokens)
+        case .commandRunner: TerminalModuleView(tokens: tokens)
         }
     }
 }
@@ -117,6 +120,15 @@ private struct ModuleTabStrip: View {
     @Namespace private var highlight
 
     var body: some View {
+        // Scrolls sideways when the enabled modules don't fit (compact size, many modules).
+        ScrollView(.horizontal, showsIndicators: false) {
+            tabs
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var tabs: some View {
         HStack(spacing: 3) {
             ForEach(modules) { module in
                 let isSelected = module == selected

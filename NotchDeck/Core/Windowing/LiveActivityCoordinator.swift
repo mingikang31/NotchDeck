@@ -220,7 +220,7 @@ struct LiveActivityWings: View {
     }
 
     private var colors: [Color] {
-        media.palette.isEmpty ? settings.accentColor.gradient : media.palette
+        settings.accentColor.colors(artworkPalette: media.palette)
     }
 }
 

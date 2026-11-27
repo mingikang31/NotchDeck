@@ -36,6 +36,7 @@ struct MediaModuleView: View {
                         TransportButton(symbol: media.isPlaying ? "pause.fill" : "play.fill", size: 18) { media.perform(.playPause) }
                         TransportButton(symbol: "forward.fill", size: 13) { media.perform(.next) }
                         Spacer()
+                        LyricsToggle(tokens: tokens)
                         OutputDevicePicker(tokens: tokens)
                         Text(snapshot.source.displayName)
                             .font(.system(size: 10, weight: .medium))
@@ -49,7 +50,45 @@ struct MediaModuleView: View {
     }
 
     private var glowColors: [Color] {
-        media.palette.isEmpty ? settings.accentColor.gradient : media.palette
+        settings.accentColor.colors(artworkPalette: media.palette)
+    }
+}
+
+/// Turns time-synced lyrics under the collapsed notch on or off; the tooltip says what was found.
+private struct LyricsToggle: View {
+    let tokens: ThemeTokens
+
+    @Environment(SettingsStore.self) private var settings
+    @Environment(LyricsStore.self) private var lyrics
+
+    var body: some View {
+        Button {
+            settings.lyricsEnabled.toggle()
+        } label: {
+            Image(systemName: settings.lyricsEnabled ? "quote.bubble.fill" : "quote.bubble")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(settings.lyricsEnabled ? tokens.primaryText : tokens.secondaryText)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(settings.lyricsEnabled ? "Turn lyrics off" : "Turn lyrics on")
+    }
+
+    private var help: String {
+        guard settings.lyricsEnabled else {
+            return "Show time-synced lyrics under the notch while music plays (looks up songs on lrclib.net)"
+        }
+        return switch lyrics.state {
+        case .off: "Lyrics on"
+        case .loading: "Lyrics on · looking up this song…"
+        case .synced: "Lyrics on · following along. Click to turn off."
+        case .unsynced: "Lyrics on · this song's lyrics have no timings, so they can't follow along"
+        case .instrumental: "Lyrics on · instrumental track"
+        case .notFound: "Lyrics on · no lyrics found for this song"
+        case .failed: "Lyrics on · couldn't reach lrclib.net"
+        }
     }
 }
 

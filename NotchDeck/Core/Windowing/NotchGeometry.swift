@@ -60,7 +60,7 @@ nonisolated enum ExpandedLayout: Equatable, Sendable {
     case fitted(CGFloat)
 
     /// Modules whose notch hugs their content instead of using a fixed height.
-    static let contentFittedModules: Set<NotchModule> = [.systemMonitor, .liveActivities]
+    static let contentFittedModules: Set<NotchModule> = [.systemMonitor, .liveActivities, .worldClock]
 
     /// AI Chat, the list modules (To-Dos, Clipboard), the camera Mirror, and Agent Hooks while an
     /// approval card is showing need the extra height; content-fitted modules use their measured
@@ -70,7 +70,7 @@ nonisolated enum ExpandedLayout: Equatable, Sendable {
             return fittedHeight.map { .fitted($0) } ?? .tall
         }
         switch module {
-        case .aiChat, .todos, .clipboard, .mirror: return .tall
+        case .aiChat, .todos, .clipboard, .mirror, .usage, .commandRunner: return .tall
         case .agentHooks: return hasPendingApproval ? .tall : .standard
         default: return .standard
         }

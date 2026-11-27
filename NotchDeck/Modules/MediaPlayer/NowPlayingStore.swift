@@ -214,7 +214,7 @@ final class NowPlayingStore {
 
     private func apply(_ reading: MediaSnapshot?) {
         snapshot = reading
-        snapshotDate = Date()
+        snapshotDate = reading?.readAt ?? Date()
         scheduleResync()
         guard let reading else {
             artwork = nil

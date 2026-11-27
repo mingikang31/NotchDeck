@@ -72,7 +72,11 @@ nonisolated struct AnthropicChatClient: ChatStreamingClient {
         guard let json = ServerSentEvents.json(payload), let type = json["type"] as? String else { return [] }
         switch type {
         case "message_start":
-            if let model = (json["message"] as? [String: Any])?["model"] as? String { return [.model(model)] }
+            let message = json["message"] as? [String: Any]
+            var events: [ChatStreamEvent] = []
+            if let model = message?["model"] as? String { events.append(.model(model)) }
+            if let usage = message?["usage"] as? [String: Any] { events.append(.usage(Self.tokens(from: usage))) }
+            return events
         case "content_block_start":
             // A refusal fallback arrives as an ordinary content block of type "fallback";
             // streamed text is kept and the fallback model continues on the same stream.
@@ -88,7 +92,10 @@ nonisolated struct AnthropicChatClient: ChatStreamingClient {
             default: return []
             }
         case "message_delta":
-            if let reason = (json["delta"] as? [String: Any])?["stop_reason"] as? String { return [.stop(reason: reason)] }
+            var events: [ChatStreamEvent] = []
+            if let usage = json["usage"] as? [String: Any] { events.append(.usage(Self.tokens(from: usage))) }
+            if let reason = (json["delta"] as? [String: Any])?["stop_reason"] as? String { events.append(.stop(reason: reason)) }
+            return events
         case "message_stop":
             return nil
         case "error":
@@ -100,6 +107,19 @@ nonisolated struct AnthropicChatClient: ChatStreamingClient {
             break
         }
         return []
+    }
+
+    /// Messages API usage: `input_tokens` excludes cache reads and writes; writes split by TTL when given.
+    static func tokens(from usage: [String: Any]) -> TokenCounts {
+        func int(_ key: String, _ dict: [String: Any] = usage) -> Int { (dict[key] as? NSNumber)?.intValue ?? 0 }
+        var tokens = TokenCounts(input: int("input_tokens"), cacheRead: int("cache_read_input_tokens"), output: int("output_tokens"))
+        if let creation = usage["cache_creation"] as? [String: Any] {
+            tokens.cacheWrite5m = int("ephemeral_5m_input_tokens", creation)
+            tokens.cacheWrite1h = int("ephemeral_1h_input_tokens", creation)
+        } else {
+            tokens.cacheWrite5m = int("cache_creation_input_tokens")
+        }
+        return tokens
     }
 
     static func error(status: Int, body: Data) -> Error {
@@ -182,8 +202,17 @@ nonisolated struct GeminiChatClient: ChatStreamingClient {
         if let blocked = (json["promptFeedback"] as? [String: Any])?["blockReason"] as? String {
             throw ChatError.rejected(status: 200, message: "Gemini blocked this request (\(blocked)).")
         }
-        guard let candidate = (json["candidates"] as? [[String: Any]])?.first else { return [] }
         var events: [ChatStreamEvent] = []
+        if let usage = json["usageMetadata"] as? [String: Any] {
+            func int(_ key: String) -> Int { (usage[key] as? NSNumber)?.intValue ?? 0 }
+            let cached = int("cachedContentTokenCount")
+            events.append(.usage(TokenCounts(
+                input: max(0, int("promptTokenCount") - cached),
+                cacheRead: cached,
+                output: int("candidatesTokenCount") + int("thoughtsTokenCount")
+            )))
+        }
+        guard let candidate = (json["candidates"] as? [[String: Any]])?.first else { return events }
         let parts = (candidate["content"] as? [String: Any])?["parts"] as? [[String: Any]] ?? []
         for part in parts where part["thought"] as? Bool != true {
             if let text = part["text"] as? String { events.append(.text(text)) }
@@ -240,7 +269,8 @@ nonisolated struct OpenAICompatibleChatClient: ChatStreamingClient {
             parts.insert(["type": "text", "text": text], at: 0)
             messages.append(["role": "user", "content": parts])
         }
-        return ["model": request.modelID, "stream": true, "messages": messages]
+        // include_usage adds a final chunk with token counts (standard; servers that don't know it ignore it).
+        return ["model": request.modelID, "stream": true, "stream_options": ["include_usage": true], "messages": messages]
     }
 
     static func events(from payload: String) throws -> [ChatStreamEvent]? {
@@ -249,8 +279,13 @@ nonisolated struct OpenAICompatibleChatClient: ChatStreamingClient {
         if let error = json["error"] as? [String: Any] {
             throw ChatError.rejected(status: 200, message: "Custom endpoint: \(error["message"] as? String ?? "stream error")")
         }
-        guard let choice = (json["choices"] as? [[String: Any]])?.first else { return [] }
         var events: [ChatStreamEvent] = []
+        if let usage = json["usage"] as? [String: Any] {
+            func int(_ key: String, _ dict: [String: Any]? = nil) -> Int { ((dict ?? usage)[key] as? NSNumber)?.intValue ?? 0 }
+            let cached = int("cached_tokens", usage["prompt_tokens_details"] as? [String: Any] ?? [:])
+            events.append(.usage(TokenCounts(input: max(0, int("prompt_tokens") - cached), cacheRead: cached, output: int("completion_tokens"))))
+        }
+        guard let choice = (json["choices"] as? [[String: Any]])?.first else { return events }
         if let content = (choice["delta"] as? [String: Any])?["content"] as? String, !content.isEmpty {
             events.append(.text(content))
         }

@@ -50,6 +50,16 @@ final class CameraMirrorStore {
         isRunning = false
     }
 
+    /// The Mirror tab is no longer on screen (another tab was picked or the notch closed): turn the
+    /// camera off right away instead of waiting for the view's fade-out, and drop any start in flight.
+    func deactivate() {
+        guard visibleViews > 0 || isRunning else { return }
+        visibleViews = 0
+        session.cancelPendingStart()
+        session.stop()
+        isRunning = false
+    }
+
     func requestAccess() async {
         _ = await AVCaptureDevice.requestAccess(for: .video)
         access = Self.currentAccess()
@@ -106,17 +116,38 @@ nonisolated final class CaptureSessionBox: @unchecked Sendable {
 
     /// Starts (or switches to) a camera. Returns an error message, or nil on success.
     func start(deviceID: String) async -> String? {
-        await withCheckedContinuation { continuation in
+        let requested = currentGeneration
+        return await withCheckedContinuation { continuation in
             queue.async { [self] in
-                continuation.resume(returning: configureAndRun(deviceID: deviceID))
+                guard requested == currentGeneration else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                let result = configureAndRun(deviceID: deviceID)
+                // Cancelled while the device was opening: turn it straight back off.
+                if requested != currentGeneration, session.isRunning { session.stopRunning() }
+                continuation.resume(returning: result)
             }
         }
     }
+
+    private let lock = NSLock()
+    private var generation = 0
 
     func stop() {
         queue.async { [self] in
             if session.isRunning { session.stopRunning() }
         }
+    }
+
+    /// A start already queued (or blocked opening the device) won't leave the camera running.
+    func cancelPendingStart() {
+        lock.lock(); generation += 1; lock.unlock()
+    }
+
+    private var currentGeneration: Int {
+        lock.lock(); defer { lock.unlock() }
+        return generation
     }
 
     private func configureAndRun(deviceID: String) -> String? {

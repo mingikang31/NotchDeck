@@ -2,6 +2,13 @@ import Foundation
 import IOBluetooth
 import IOKit
 
+/// Carries an IOBluetoothDevice from IOBluetooth's background queue to the main thread (the object is
+/// only touched there).
+nonisolated private final class DeviceBox: @unchecked Sendable {
+    let device: IOBluetoothDevice
+    init(_ device: IOBluetoothDevice) { self.device = device }
+}
+
 /// A connected Bluetooth device as the notch shows it.
 nonisolated struct BluetoothDeviceInfo: Identifiable, Equatable, Sendable {
     struct Battery: Equatable, Sendable {
@@ -98,7 +105,30 @@ final class BluetoothMonitor: NSObject {
         onDevicesChanged?(devices)
     }
 
-    @objc private func deviceConnected(_ notification: IOBluetoothUserNotification, fromDevice device: IOBluetoothDevice) {
+    // IOBluetooth posts these from a CoreBluetooth background queue, not the main thread. They must be
+    // `nonisolated` (a main-actor method called off the main thread is a deliberate crash in Swift 6:
+    // it took NotchDeck down on every launch while AirPods were connected) and hop to the main thread.
+
+    @objc nonisolated private func deviceConnected(_ notification: IOBluetoothUserNotification, fromDevice device: IOBluetoothDevice) {
+        let box = DeviceBox(device)
+        Self.onMain { [weak self] in self?.handleConnected(box.device) }
+    }
+
+    @objc nonisolated private func deviceDisconnected(_ notification: IOBluetoothUserNotification, fromDevice device: IOBluetoothDevice) {
+        let box = DeviceBox(device)
+        Self.onMain { [weak self] in self?.handleDisconnected(box.device) }
+    }
+
+    /// Runs `work` on the main thread: right away if already there, otherwise asynchronously.
+    nonisolated static func onMain(_ work: @escaping @MainActor @Sendable () -> Void) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { work() }
+        } else {
+            DispatchQueue.main.async { MainActor.assumeIsolated { work() } }
+        }
+    }
+
+    private func handleConnected(_ device: IOBluetoothDevice) {
         let isNew = connected[Self.key(device)] == nil
         track(device)
         publish()
@@ -112,7 +142,7 @@ final class BluetoothMonitor: NSObject {
         }
     }
 
-    @objc private func deviceDisconnected(_ notification: IOBluetoothUserNotification, fromDevice device: IOBluetoothDevice) {
+    private func handleDisconnected(_ device: IOBluetoothDevice) {
         let key = Self.key(device)
         disconnectNotifications.removeValue(forKey: key)?.unregister()
         connected.removeValue(forKey: key)

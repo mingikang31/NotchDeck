@@ -41,6 +41,9 @@ struct AppServices {
     let todos: TodoStore
     let clipboard: ClipboardStore
     let mirror: CameraMirrorStore
+    let usage: UsageStore
+    let lyrics: LyricsStore
+    let terminal: TerminalSession
 }
 
 extension View {
@@ -65,6 +68,9 @@ extension View {
             .environment(services.todos)
             .environment(services.clipboard)
             .environment(services.mirror)
+            .environment(services.usage)
+            .environment(services.lyrics)
+            .environment(services.terminal)
             .environment(\.settingsOpener, services.settingsOpener)
     }
 }
@@ -119,7 +125,10 @@ final class DependencyContainer {
             pomodoro: pomodoro,
             todos: TodoStore(),
             clipboard: ClipboardStore(settings: settings),
-            mirror: CameraMirrorStore()
+            mirror: CameraMirrorStore(),
+            usage: UsageStore(settings: settings),
+            lyrics: LyricsStore(settings: settings, media: nowPlaying),
+            terminal: TerminalSession()
         )
         windowController = NotchWindowController(services: services)
     }
@@ -138,6 +147,22 @@ final class DependencyContainer {
         services.chat.onHideNotch = { [weak self] in self?.windowController.collapseAll() }
         services.agentHooks.onApprovalNeeded = { [weak self] in self?.windowController.showAgentApproval() }
         services.agentHooks.onQueueEmptied = { [weak self] in self?.windowController.collapse(ifShowing: .agentHooks) }
+        services.chat.onUsage = { [weak self] model, provider, tokens in
+            self?.services.usage.recordChat(model: model, provider: provider, tokens: tokens)
+        }
+        // A finished Claude Code / Codex task wrote new usage to its log.
+        services.agentHooks.onTaskFinished = { [weak self] in
+            Task { await self?.services.usage.refresh() }
+        }
+
+        // Lyrics follow the playing track (and the setting).
+        observeContinuously({ [weak self] in
+            guard let self else { return "" }
+            let snapshot = self.services.nowPlaying.snapshot
+            return "\(self.settings.lyricsEnabled)|\(self.settings.enabledModules.contains(.media))|\(snapshot?.title ?? "")|\(snapshot?.artist ?? "")|\(snapshot?.album ?? "")"
+        }) { [weak self] _ in
+            self?.services.lyrics.update()
+        }
         services.licenseManager.start()
         services.apiKeys.refresh()
         // Fresh model lists for every configured provider (cached lists show meanwhile).
