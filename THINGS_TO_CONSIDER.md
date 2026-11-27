@@ -839,6 +839,13 @@ Scripts/                       license-keygen.swift
 
 ## 9. Log
 
+- **2026-11-26 — Distribution plan.** LemonSqueezy is shutting down (sign-ups closed 2026-11-16, payments stop
+  2027-03-31); the user will sell through Stripe (one-time payments). Wrote `distribution.md`: Apple Developer ID
+  + notarization, Stripe Payment Link with Managed Payments, license server Stripe mode (D1 database, webhook,
+  emailed keys, activation limit, refund handling), email, Sparkle keys / appcast, release steps, website,
+  launch checklist, secrets table, and alternatives with built-in license keys (Polar, Dodo Payments, Creem,
+  FastSpring, Gumroad). The server's LemonSqueezy mode needs replacing before release (not done yet).
+
 - **2026-11-26 — CPU pass.** Visualizer moved to Core Animation keyframes (Release, collapsed with music:
   CPU 10–13 % → 4–6 %, wakeups ~1,000/s → ~340/s). Found that ad-hoc Release builds don't launch (Sparkle
   library validation). Agent-hook server tests wait longer / retry ports (were flaky under load). 229 tests.

@@ -11,3 +11,7 @@ xcuserdata/
 .env.*
 !.env.example
 .dev.vars
+
+# Private planning notes (kept off GitHub)
+distribution.md
+business-and-taxes.md
