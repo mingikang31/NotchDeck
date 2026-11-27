@@ -185,8 +185,12 @@ final class AgentHookStore {
     @ObservationIgnored var onQueueEmptied: () -> Void = {}
     /// A Claude Code / Codex task finished (its usage log has new entries).
     @ObservationIgnored var onTaskFinished: () -> Void = {}
+    /// Claude Code's status-line snapshot (with live plan usage), forwarded by the status line script.
+    @ObservationIgnored var onStatusLine: ([String: Any]) -> Void = { _ in }
 
     @ObservationIgnored private let settings: SettingsStore
+    /// Lets tests move the server to another port when the random one is taken.
+    var settingsForTests: SettingsStore { settings }
     @ObservationIgnored private let configURLs: [HookAgent: URL]
     @ObservationIgnored private var server: LocalHTTPServer?
     @ObservationIgnored private(set) var isActive = false
@@ -254,6 +258,11 @@ final class AgentHookStore {
             return exchange.respond(.json(["error": "Forbidden"], status: 403))
         }
         let json = (try? JSONSerialization.jsonObject(with: request.body)) as? [String: Any] ?? [:]
+        if request.path == ClaudeStatusLineInstaller.path {
+            exchange.respond(.empty)
+            onStatusLine(json)
+            return
+        }
         guard let route = HookAgent.route(request.path) else {
             return exchange.respond(.json(["error": "Not found"], status: 404))
         }
@@ -402,6 +411,37 @@ final class AgentHookStore {
         for agent in HookAgent.allCases {
             hookStatus[agent] = AgentHookInstaller.status(at: configURL(for: agent), port: settings.agentServerPort, token: settings.agentHookToken)
         }
+        let claudeSettings = configURL(for: .claudeCode)
+        ClaudeStatusLineInstaller.refreshScript(settingsURL: claudeSettings, scriptURL: statusLineScriptURL,
+                                                port: settings.agentServerPort, token: settings.agentHookToken)
+        statusLineStatus = ClaudeStatusLineInstaller.status(at: claudeSettings)
+    }
+
+    // MARK: Claude Code status line (live plan usage)
+
+    private(set) var statusLineStatus: ClaudeStatusLineInstaller.Status = .notInstalled
+    private(set) var statusLineError: String?
+    @ObservationIgnored var statusLineScriptURL = ClaudeStatusLineInstaller.defaultScriptURL()
+
+    func installStatusLine() {
+        do {
+            try ClaudeStatusLineInstaller.install(settingsURL: configURL(for: .claudeCode), scriptURL: statusLineScriptURL,
+                                                  port: settings.agentServerPort, token: settings.agentHookToken)
+            statusLineError = nil
+        } catch {
+            statusLineError = error.localizedDescription
+        }
+        refreshHookStatus()
+    }
+
+    func uninstallStatusLine() {
+        do {
+            try ClaudeStatusLineInstaller.uninstall(settingsURL: configURL(for: .claudeCode), scriptURL: statusLineScriptURL)
+            statusLineError = nil
+        } catch {
+            statusLineError = error.localizedDescription
+        }
+        refreshHookStatus()
     }
 
     func status(for agent: HookAgent) -> AgentHookInstaller.Status { hookStatus[agent] ?? .notInstalled }

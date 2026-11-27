@@ -352,3 +352,80 @@ nonisolated enum MCPConfigReader {
         return servers.sorted { $0.name < $1.name }
     }
 }
+
+// MARK: - Claude Code plan usage
+
+/// Claude Code's plan usage (what `/usage` shows), from the copy Claude Code caches in
+/// `~/.claude.json` → `cachedUsageUtilization`. Claude Code refreshes it itself; NotchDeck only reads
+/// it (no login, no network). It's an internal cache, so it's parsed defensively.
+nonisolated struct ClaudePlanStatus: Equatable, Sendable {
+    struct Window: Equatable, Sendable, Identifiable {
+        var key: String
+        var usedPercent: Double
+        var resetsAt: Date?
+
+        var id: String { key }
+
+        var label: String {
+            switch key {
+            case "five_hour": "5-hour session"
+            case "seven_day": "Weekly (all models)"
+            case "seven_day_opus": "Weekly Opus"
+            case "seven_day_sonnet": "Weekly Sonnet"
+            default: key
+            }
+        }
+
+        /// The window's reset time has passed since Claude Code cached it: the number is stale.
+        func hasReset(at now: Date) -> Bool { resetsAt.map { $0 <= now } ?? false }
+    }
+
+    var windows: [Window]
+    /// When Claude Code fetched these numbers.
+    var fetchedAt: Date?
+    /// Live from Claude Code's status line (vs. the copy it caches in `~/.claude.json`).
+    var isLive = false
+
+    /// Windows shown, in this order (others in the cache are internal / promotional).
+    static let knownWindows = ["five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet"]
+
+    static func parse(claudeJSON: Data?) -> ClaudePlanStatus? {
+        guard let data = claudeJSON,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let cached = json["cachedUsageUtilization"] as? [String: Any],
+              let utilization = cached["utilization"] as? [String: Any] else { return nil }
+        let windows = knownWindows.compactMap { key -> Window? in
+            guard let window = utilization[key] as? [String: Any],
+                  let used = (window["utilization"] as? NSNumber)?.doubleValue else { return nil }
+            return Window(key: key, usedPercent: used, resetsAt: parseResetDate(window["resets_at"]))
+        }
+        guard !windows.isEmpty else { return nil }
+        let fetchedAt = (cached["fetchedAtMs"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
+        return ClaudePlanStatus(windows: windows, fetchedAt: fetchedAt)
+    }
+
+    /// From the status-line snapshot: `rate_limits.five_hour` / `seven_day` with `used_percentage`
+    /// (0–100) and `resets_at` (epoch seconds). Present for Pro / Max / Ultra after the first response.
+    static func parse(statusLine json: [String: Any], at date: Date = Date()) -> ClaudePlanStatus? {
+        guard let limits = json["rate_limits"] as? [String: Any] else { return nil }
+        let windows = ["five_hour", "seven_day"].compactMap { key -> Window? in
+            guard let window = limits[key] as? [String: Any],
+                  let used = (window["used_percentage"] as? NSNumber)?.doubleValue else { return nil }
+            return Window(key: key, usedPercent: used,
+                          resetsAt: (window["resets_at"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) })
+        }
+        guard !windows.isEmpty else { return nil }
+        return ClaudePlanStatus(windows: windows, fetchedAt: date, isLive: true)
+    }
+
+    /// `2026-11-27T00:50:00.394985+00:00` (microseconds and an offset, which ISO8601DateFormatter
+    /// doesn't take as-is).
+    static func parseResetDate(_ value: Any?) -> Date? {
+        guard var string = value as? String else { return nil }
+        if let dot = string.firstIndex(of: "."), let zone = string[dot...].firstIndex(where: { $0 == "+" || $0 == "-" || $0 == "Z" }) {
+            string.removeSubrange(dot..<zone)
+        }
+        let formatter = ISO8601DateFormatter()
+        return formatter.date(from: string)
+    }
+}

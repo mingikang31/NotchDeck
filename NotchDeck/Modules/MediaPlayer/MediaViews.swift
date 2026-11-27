@@ -282,6 +282,9 @@ private struct NothingPlayingView: View {
 
 /// Live audio visualizer. Real per-app audio levels would need a system audio tap, so this is
 /// a lively procedural animation that runs only while playing and settles when paused.
+/// The animated bars / wave beside the album art. Not driven by the audio (macOS doesn't share other
+/// apps' audio levels): it's a decorative loop, so it runs as Core Animation keyframes in the system's
+/// render server. NotchDeck does no per-frame work, and it's smooth at the display's refresh rate.
 struct AudioVisualizer: View {
     let isPlaying: Bool
     let style: VisualizerStyle
@@ -290,56 +293,223 @@ struct AudioVisualizer: View {
 
     var body: some View {
         if style != .off {
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isPlaying)) { context in
-                let t = context.date.timeIntervalSinceReferenceDate
-                GeometryReader { proxy in
-                    switch style {
-                    case .bars: bars(t: t, size: proxy.size)
-                    case .wave: wave(t: t, size: proxy.size)
-                    case .off: EmptyView()
-                    }
-                }
-            }
-            .animation(.easeOut(duration: 0.3), value: isPlaying)
+            VisualizerLayerRepresentable(
+                isPlaying: isPlaying,
+                style: style,
+                colors: (colors.isEmpty ? [.white] : colors).map { NSColor($0).cgColor },
+                barCount: barCount
+            )
+        }
+    }
+}
+
+private struct VisualizerLayerRepresentable: NSViewRepresentable {
+    let isPlaying: Bool
+    let style: VisualizerStyle
+    let colors: [CGColor]
+    let barCount: Int
+
+    func makeNSView(context: Context) -> VisualizerLayerView {
+        let view = VisualizerLayerView()
+        update(view)
+        return view
+    }
+
+    func updateNSView(_ view: VisualizerLayerView, context: Context) { update(view) }
+
+    private func update(_ view: VisualizerLayerView) {
+        view.configure(style: style, barCount: barCount, colors: colors, isPlaying: isPlaying)
+    }
+}
+
+/// Layer-hosting view whose bars / wave animate with repeating keyframe animations.
+final class VisualizerLayerView: NSView {
+    /// Bars loop every 6 s: each bar's frequencies are whole multiples of 1/6 Hz, so the loop is seamless.
+    static let barLoop: TimeInterval = 6
+    static let keyframeRate: Double = 30
+    /// The wave advances 6 rad/s, repeating every 2π/6 s.
+    static let waveLoop: TimeInterval = 2 * .pi / 6
+
+    private(set) var style: VisualizerStyle = .bars
+    private(set) var isPlaying = false
+    private var colors: [CGColor] = []
+    private var barCount = 4
+    private var builtFor: (size: CGSize, style: VisualizerStyle, bars: Int)?
+    private var barLayers: [CAGradientLayer] = []
+    private var waveGradient: CAGradientLayer?
+    private var waveMask: CAShapeLayer?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        layer = CALayer()
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    func configure(style: VisualizerStyle, barCount: Int, colors: [CGColor], isPlaying: Bool) {
+        let structureChanged = style != self.style || barCount != self.barCount
+        self.style = style
+        self.barCount = barCount
+        if colors != self.colors {
+            self.colors = colors
+            applyColors()
+        }
+        if structureChanged {
+            builtFor = nil
+            needsLayout = true
+        }
+        if isPlaying != self.isPlaying {
+            self.isPlaying = isPlaying
+            applyMotion(animated: true)
         }
     }
 
-    private var gradient: LinearGradient {
-        LinearGradient(colors: colors.isEmpty ? [.white] : colors, startPoint: .top, endPoint: .bottom)
+    override func layout() {
+        super.layout()
+        let size = bounds.size
+        guard size.width >= 1, size.height >= 1 else { return }
+        if let built = builtFor, built.size == size, built.style == style, built.bars == barCount { return }
+        rebuild(size: size)
     }
 
-    private func level(_ index: Int, _ t: TimeInterval) -> Double {
-        guard isPlaying else { return 0.18 }
-        let speeds = [5.1, 7.3, 6.2, 8.4, 5.7, 6.9]
+    private func rebuild(size: CGSize) {
+        layer?.sublayers?.forEach { $0.removeFromSuperlayer() }
+        barLayers = []
+        waveGradient = nil
+        waveMask = nil
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        switch style {
+        case .bars:
+            let spacing: CGFloat = 2
+            let width = max(1, (size.width - spacing * CGFloat(barCount - 1)) / CGFloat(barCount))
+            for index in 0..<barCount {
+                let bar = CAGradientLayer()
+                bar.cornerRadius = width / 2
+                bar.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+                bar.position = CGPoint(x: CGFloat(index) * (width + spacing) + width / 2, y: size.height / 2)
+                bar.bounds = CGRect(x: 0, y: 0, width: width, height: restingHeight(width: width, height: size.height))
+                layer?.addSublayer(bar)
+                barLayers.append(bar)
+            }
+        case .wave:
+            let gradient = CAGradientLayer()
+            gradient.frame = CGRect(origin: .zero, size: size)
+            let mask = CAShapeLayer()
+            mask.frame = gradient.bounds
+            mask.fillColor = nil
+            mask.strokeColor = NSColor.black.cgColor
+            mask.lineWidth = 2
+            mask.lineCap = .round
+            mask.lineJoin = .round
+            mask.path = Self.wavePath(size: size, phase: 0, amplitude: size.height * 0.05)
+            gradient.mask = mask
+            layer?.addSublayer(gradient)
+            waveGradient = gradient
+            waveMask = mask
+        case .off:
+            break
+        }
+        CATransaction.commit()
+        builtFor = (size, style, barCount)
+        applyColors()
+        applyMotion(animated: false)
+    }
+
+    private func applyColors() {
+        let colors = self.colors.isEmpty ? [NSColor.white.cgColor] : self.colors
+        let stops = colors.count == 1 ? [colors[0], colors[0]] : colors
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for bar in barLayers { bar.colors = stops }
+        waveGradient?.colors = stops
+        CATransaction.commit()
+    }
+
+    private func restingHeight(width: CGFloat, height: CGFloat) -> CGFloat {
+        max(width, height * 0.18)
+    }
+
+    /// Starts the looping animation while playing; eases to a low resting shape when paused.
+    private func applyMotion(animated: Bool) {
+        let size = bounds.size
+        guard size.width >= 1 else { return }
+        for (index, bar) in barLayers.enumerated() {
+            let width = bar.bounds.width
+            let rest = CGRect(x: 0, y: 0, width: width, height: restingHeight(width: width, height: size.height))
+            if isPlaying {
+                let frames = Int(Self.barLoop * Self.keyframeRate)
+                let animation = CAKeyframeAnimation(keyPath: "bounds")
+                animation.values = (0...frames).map { frame in
+                    let t = Double(frame) / Self.keyframeRate
+                    let height = max(width, size.height * Self.barLevel(index: index, time: t))
+                    return NSValue(rect: CGRect(x: 0, y: 0, width: width, height: height))
+                }
+                animation.duration = Self.barLoop
+                animation.repeatCount = .infinity
+                animation.calculationMode = .linear
+                animation.isRemovedOnCompletion = false
+                bar.add(animation, forKey: "level")
+            } else {
+                // Ease from wherever the bar is to rest.
+                let current = bar.presentation()?.bounds ?? bar.bounds
+                bar.removeAnimation(forKey: "level")
+                bar.bounds = rest
+                if animated {
+                    let settle = CABasicAnimation(keyPath: "bounds")
+                    settle.fromValue = NSValue(rect: current)
+                    settle.toValue = NSValue(rect: rest)
+                    settle.duration = 0.3
+                    settle.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    bar.add(settle, forKey: "settle")
+                }
+            }
+        }
+        if let mask = waveMask {
+            let rest = Self.wavePath(size: size, phase: 0, amplitude: size.height * 0.05)
+            if isPlaying {
+                let frames = 32
+                let animation = CAKeyframeAnimation(keyPath: "path")
+                animation.values = (0...frames).map { frame in
+                    Self.wavePath(size: size, phase: Double(frame) / Double(frames) * 2 * .pi, amplitude: size.height * 0.38)
+                }
+                animation.duration = Self.waveLoop
+                animation.repeatCount = .infinity
+                animation.calculationMode = .linear
+                animation.isRemovedOnCompletion = false
+                mask.add(animation, forKey: "wave")
+            } else {
+                mask.removeAnimation(forKey: "wave")
+                CATransaction.begin()
+                CATransaction.setDisableActions(!animated)
+                CATransaction.setAnimationDuration(0.3)
+                mask.path = rest
+                CATransaction.commit()
+            }
+        }
+    }
+
+    /// Same motion as before (two sines per bar), with frequencies rounded to whole cycles per loop.
+    static func barLevel(index: Int, time: TimeInterval) -> Double {
+        let cycles = [5.0, 7.0, 6.0, 8.0, 5.0, 7.0]           // per 6-second loop (≈ 5.1, 7.3, 6.2, 8.4 rad/s)
+        let omega = 2 * .pi / barLoop
         let phase = Double(index) * 1.7
-        let primary = 0.5 + 0.5 * sin(t * speeds[index % speeds.count] + phase)
-        let secondary = 0.5 + 0.5 * sin(t * 2.3 + phase * 0.6)
+        let primary = 0.5 + 0.5 * sin(time * omega * cycles[index % cycles.count] + phase)
+        let secondary = 0.5 + 0.5 * sin(time * omega * 2 + phase * 0.6)
         return 0.22 + 0.78 * (0.7 * primary + 0.3 * secondary)
     }
 
-    private func bars(t: TimeInterval, size: CGSize) -> some View {
-        let spacing: CGFloat = 2
-        let width = max(1, (size.width - spacing * CGFloat(barCount - 1)) / CGFloat(barCount))
-        return HStack(alignment: .center, spacing: spacing) {
-            ForEach(0..<barCount, id: \.self) { index in
-                Capsule()
-                    .fill(gradient)
-                    .frame(width: width, height: max(width, size.height * level(index, t)))
-            }
+    /// The wave across the width: three half-cycles under a sine envelope (ends pinned to the middle).
+    static func wavePath(size: CGSize, phase: Double, amplitude: CGFloat) -> CGPath {
+        let path = CGMutablePath()
+        let steps = max(Int(size.width.rounded(.up)), 8)
+        for step in 0...steps {
+            let x = size.width * CGFloat(step) / CGFloat(steps)
+            let progress = Double(step) / Double(steps)
+            let y = size.height / 2 + amplitude * CGFloat(sin(progress * .pi * 3 + phase) * sin(progress * .pi))
+            if step == 0 { path.move(to: CGPoint(x: x, y: y)) } else { path.addLine(to: CGPoint(x: x, y: y)) }
         }
-        .frame(width: size.width, height: size.height)
-    }
-
-    private func wave(t: TimeInterval, size: CGSize) -> some View {
-        Path { path in
-            let amplitude = size.height * (isPlaying ? 0.38 : 0.05)
-            path.move(to: CGPoint(x: 0, y: size.height / 2))
-            for x in stride(from: 0, through: size.width, by: 1) {
-                let progress = x / max(size.width, 1)
-                let y = size.height / 2 + amplitude * sin(progress * .pi * 3 + t * 6) * sin(progress * .pi)
-                path.addLine(to: CGPoint(x: x, y: y))
-            }
-        }
-        .stroke(gradient, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+        return path
     }
 }

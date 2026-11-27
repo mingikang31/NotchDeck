@@ -11,11 +11,14 @@ struct UsageModuleView: View {
     let tokens: ThemeTokens
 
     @Environment(UsageStore.self) private var usage
+    @Environment(SettingsStore.self) private var settings
     @Environment(\.settingsOpener) private var settingsOpener
 
     var body: some View {
         @Bindable var usage = usage
         let range = usage.range
+        let prefs = settings.usagePreferences
+        let sources = UsageSource.allCases.filter(prefs.shows)
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Picker("Range", selection: $usage.range) {
@@ -35,28 +38,36 @@ struct UsageModuleView: View {
                     Task { await usage.refresh() }
                 }
                 .disabled(usage.isRefreshing)
-                NotchIconButton(symbol: "dollarsign.circle", help: "Prices (Settings → Modules → Usage)", tokens: tokens) {
-                    settingsOpener.open(.modules)
+                NotchIconButton(symbol: "slider.horizontal.3", help: "Choose what Usage shows, and prices (Settings → AI & Agents)", tokens: tokens) {
+                    settingsOpener.open(.aiAgents)
                 }
             }
 
-            HStack(spacing: 8) {
-                ForEach(UsageSource.allCases) { source in
-                    SourceCard(source: source, totals: usage.totals(for: source, in: range), tokens: tokens)
+            if sources.isEmpty {
+                Text("Every source is hidden. Choose what to show in Settings → AI & Agents → Usage.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(tokens.secondaryText)
+            } else {
+                HStack(spacing: 8) {
+                    ForEach(sources) { source in
+                        SourceCard(source: source, totals: usage.totals(for: source, in: range), tokens: tokens)
+                    }
                 }
+                .fixedSize(horizontal: false, vertical: true)
             }
-            .fixedSize(horizontal: false, vertical: true)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
-                    ModelBreakdown(models: usage.modelTotals(in: range), tokens: tokens)
-                    LimitsSection(tokens: tokens)
-                    MCPSection(tokens: tokens)
-                    Text("Claude Code and Codex costs are estimates at API list prices (subscriptions aren't billed per token). "
-                         + "Read from ~/.claude and ~/.codex on this Mac; nothing is uploaded.")
-                        .font(.system(size: 9.5))
-                        .foregroundStyle(tokens.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if prefs.shows(.planLimits) { LimitsSection(tokens: tokens) }
+                    if prefs.shows(.byModel) { ModelBreakdown(models: usage.modelTotals(in: range), tokens: tokens) }
+                    if prefs.shows(.mcpServers) { MCPSection(tokens: tokens) }
+                    if prefs.shows(.costNote) {
+                        Text("Claude Code and Codex costs are estimates at API list prices (subscriptions aren't billed per token). "
+                             + "Read from ~/.claude and ~/.codex on this Mac; nothing is uploaded.")
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(tokens.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 .padding(.bottom, 4)
             }
@@ -134,20 +145,36 @@ private struct LimitsSection: View {
     let tokens: ThemeTokens
 
     @Environment(UsageStore.self) private var usage
+    @Environment(SettingsStore.self) private var settings
 
     var body: some View {
-        let claude = usage.currentClaudeLimit()
-        let codex = usage.codexPlan
-        if claude != nil || codex != nil {
+        let prefs = settings.usagePreferences
+        let claudePlan = prefs.shows(.claudeCode) ? usage.claudePlan : nil
+        let claudeLimit = prefs.shows(.claudeCode) ? usage.currentClaudeLimit() : nil
+        let codex = prefs.shows(.codex) ? usage.codexPlan : nil
+        if claudePlan != nil || claudeLimit != nil || codex != nil {
             VStack(alignment: .leading, spacing: 5) {
                 Text("PLAN LIMITS").font(.system(size: 9, weight: .bold)).foregroundStyle(tokens.secondaryText)
-                if let claude {
+                if let claudeLimit {
                     HStack(spacing: 6) {
-                        Image(systemName: claude.status == "rejected" ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill")
-                            .foregroundStyle(claude.status == "rejected" ? NotchStatusColor.critical : NotchStatusColor.warning)
-                        Text("Claude Code: \(claude.status == "rejected" ? "\(claude.kindDescription) reached" : "close to the \(claude.kindDescription)")"
-                             + (claude.resetsAt.map { " · resets \($0.formatted(date: .abbreviated, time: .shortened))" } ?? ""))
+                        Image(systemName: claudeLimit.status == "rejected" ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill")
+                            .foregroundStyle(claudeLimit.status == "rejected" ? NotchStatusColor.critical : NotchStatusColor.warning)
+                        Text("Claude Code: \(claudeLimit.status == "rejected" ? "\(claudeLimit.kindDescription) reached" : "close to the \(claudeLimit.kindDescription)")"
+                             + (claudeLimit.resetsAt.map { " · resets \($0.formatted(date: .abbreviated, time: .shortened))" } ?? ""))
                             .font(.system(size: 10.5))
+                    }
+                }
+                if let claudePlan {
+                    ForEach(claudePlan.windows) { window in
+                        ClaudeWindowRow(window: window, tokens: tokens)
+                    }
+                    if let fetched = claudePlan.fetchedAt {
+                        Text(claudePlan.isLive
+                             ? "Claude Code · live, updated \(fetched.formatted(date: .omitted, time: .shortened))"
+                             : "Claude Code · Claude Code's saved copy from \(fetched.formatted(date: .omitted, time: .shortened)), may be out of date. For live numbers: Settings → AI & Agents → Usage → Connect.")
+                            .font(.system(size: 9))
+                            .foregroundStyle(tokens.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 if let codex, let window = codex.primary {
@@ -161,6 +188,50 @@ private struct LimitsSection: View {
     }
 }
 
+/// One Claude Code plan window ("5-hour session 19% · resets 4:50 PM"). Once the reset time has
+/// passed, the cached number no longer applies, so it's shown as reset.
+private struct ClaudeWindowRow: View {
+    let window: ClaudePlanStatus.Window
+    let tokens: ThemeTokens
+
+    var body: some View {
+        let reset = window.hasReset(at: Date())
+        let fraction = reset ? 0 : min(max(window.usedPercent / 100, 0), 1)
+        HStack(spacing: 8) {
+            Text("Claude · \(window.label)").font(.system(size: 10.5)).frame(width: 170, alignment: .leading).lineLimit(1)
+            LimitBar(fraction: fraction)
+            Text(reset
+                 ? "reset since last check"
+                 : "\(Int(window.usedPercent.rounded()))%" + (window.resetsAt.map { " · resets \(Self.resetText($0))" } ?? ""))
+                .font(.system(size: 10).monospacedDigit())
+                .foregroundStyle(tokens.secondaryText)
+                .lineLimit(1)
+        }
+    }
+
+    static func resetText(_ date: Date) -> String {
+        Calendar.current.isDateInToday(date)
+            ? date.formatted(date: .omitted, time: .shortened)
+            : date.formatted(.dateTime.weekday(.abbreviated).hour().minute())
+    }
+}
+
+/// Plan-usage meter: accent, turning amber at 75 % and red at 90 % (with the % shown beside it).
+private struct LimitBar: View {
+    let fraction: Double
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(UsagePalette.track)
+                Capsule().fill(fraction >= 0.9 ? NotchStatusColor.critical : fraction >= 0.75 ? NotchStatusColor.warning : UsagePalette.accent)
+                    .frame(width: max(fraction > 0 ? 4 : 0, proxy.size.width * fraction))
+            }
+        }
+        .frame(height: 6)
+    }
+}
+
 private struct PlanWindowRow: View {
     let label: String
     let window: CodexPlanStatus.Window
@@ -169,15 +240,8 @@ private struct PlanWindowRow: View {
     var body: some View {
         let fraction = min(max(window.usedPercent / 100, 0), 1)
         HStack(spacing: 8) {
-            Text(label).font(.system(size: 10.5)).frame(width: 120, alignment: .leading).lineLimit(1)
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(UsagePalette.track)
-                    Capsule().fill(fraction >= 0.9 ? NotchStatusColor.critical : fraction >= 0.75 ? NotchStatusColor.warning : UsagePalette.accent)
-                        .frame(width: max(4, proxy.size.width * fraction))
-                }
-            }
-            .frame(height: 6)
+            Text(label).font(.system(size: 10.5)).frame(width: 170, alignment: .leading).lineLimit(1)
+            LimitBar(fraction: fraction)
             Text("\(Int(window.usedPercent.rounded()))% of \(window.description)"
                  + (window.resetsAt.map { " · resets \($0.formatted(date: .abbreviated, time: .omitted))" } ?? ""))
                 .font(.system(size: 10).monospacedDigit())
@@ -218,39 +282,68 @@ private struct MCPSection: View {
     }
 }
 
-/// One-line usage summary shown under the agent approval queue.
+/// One-line usage summary shown under the agent approval queue (items chosen in Settings).
 struct AgentUsageStrip: View {
     let tokens: ThemeTokens
 
     @Environment(UsageStore.self) private var usage
+    @Environment(SettingsStore.self) private var settings
 
     var body: some View {
-        let sessions = usage.activeSessions()
-        let claude = usage.totals(for: .claudeCode, in: .today)
-        let codex = usage.totals(for: .codex, in: .today)
+        let prefs = settings.usagePreferences
+        let session = usage.activeSessions().first { prefs.shows($0.source) }
         HStack(spacing: 10) {
             Image(systemName: "chart.bar.fill").font(.system(size: 9)).foregroundStyle(tokens.secondaryText)
-            if let session = sessions.first {
-                Text("\(session.source.displayName) · \(session.project ?? "session"): \(UsageFormat.tokens(session.totals.tokens.total)) tok \(UsageFormat.cost(session.totals, estimate: true))")
+            if prefs.strip(.activeSession), let session {
+                Text("\(session.project ?? session.source.displayName) \(UsageFormat.tokens(session.totals.tokens.total)) · \(UsageFormat.cost(session.totals, estimate: true))")
                     .lineLimit(1)
-                if !session.mcpUsed.isEmpty {
-                    Text("MCP: \(session.mcpUsed.prefix(3).joined(separator: ", "))")
-                        .foregroundStyle(tokens.secondaryText)
-                        .lineLimit(1)
-                }
+                    .help("\(session.source.displayName) session in \(session.project ?? "this project"): tokens and estimated cost")
+            }
+            if prefs.strip(.mcpInUse), let session, !session.mcpUsed.isEmpty {
+                Text("MCP: \(session.mcpUsed.prefix(3).joined(separator: ", "))")
+                    .foregroundStyle(tokens.secondaryText)
+                    .lineLimit(1)
             }
             Spacer(minLength: 6)
-            Text("Today: Claude Code \(UsageFormat.tokens(claude.tokens.total)) \(UsageFormat.cost(claude, estimate: true)) · Codex \(UsageFormat.tokens(codex.tokens.total))")
-                .foregroundStyle(tokens.secondaryText)
-                .lineLimit(1)
-            if let plan = usage.codexPlan?.primary {
-                Text("plan \(Int(plan.usedPercent.rounded()))%")
+            if prefs.strip(.todayTotals) {
+                Text(todayText(prefs))
                     .foregroundStyle(tokens.secondaryText)
+                    .lineLimit(1)
+            }
+            if prefs.strip(.planLimits) {
+                ForEach(planTexts(prefs), id: \.self) { text in
+                    Text(text).foregroundStyle(tokens.secondaryText).lineLimit(1)
+                }
             }
         }
         .font(.system(size: 10).monospacedDigit())
         .onAppear { usage.viewAppeared() }
         .onDisappear { usage.viewDisappeared() }
         .help("Estimated at API list prices. Full breakdown in the Usage tab.")
+    }
+
+    /// "Today 186M · ≈$63" across the coding agents shown (compact: the strip is one line).
+    private func todayText(_ prefs: UsagePreferences) -> String {
+        let sources = [UsageSource.claudeCode, .codex].filter(prefs.shows)
+        guard !sources.isEmpty else { return "" }
+        var combined = UsageStore.Totals()
+        for source in sources {
+            let totals = usage.totals(for: source, in: .today)
+            combined.tokens += totals.tokens
+            combined.cost += totals.cost
+            combined.unpricedTokens += totals.unpricedTokens
+        }
+        return "Today \(UsageFormat.tokens(combined.tokens.total)) · \(UsageFormat.cost(combined, estimate: true))"
+    }
+
+    private func planTexts(_ prefs: UsagePreferences) -> [String] {
+        var texts: [String] = []
+        if prefs.shows(.claudeCode), let window = usage.claudePlan?.windows.first(where: { !$0.hasReset(at: Date()) }) {
+            texts.append("Claude \(Int(window.usedPercent.rounded()))% \(window.key == "five_hour" ? "5h" : "wk")")
+        }
+        if prefs.shows(.codex), let plan = usage.codexPlan?.primary {
+            texts.append("Codex \(Int(plan.usedPercent.rounded()))%")
+        }
+        return texts
     }
 }

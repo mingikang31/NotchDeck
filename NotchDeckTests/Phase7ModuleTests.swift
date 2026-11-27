@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 import Testing
@@ -476,6 +477,218 @@ struct TerminalSessionTests {
         session.setFontSize(1)
         #expect(view.font.pointSize == TerminalSession.fontSizes.lowerBound)
         view.send(txt: "exit\r")
+    }
+}
+
+struct ClaudePlanAndPreferencesTests {
+    static let claudeJSON = Data(#"""
+    {"cachedUsageUtilization":{"fetchedAtMs":1795723499477,"accountUuid":"x","utilization":{
+      "five_hour":{"utilization":19,"resets_at":"2026-11-27T00:50:00.394985+00:00","limit_dollars":null},
+      "seven_day":{"utilization":42.5,"resets_at":"2026-11-30T01:00:00.395003+00:00"},
+      "seven_day_opus":null,
+      "tangelo":{"utilization":99},
+      "extra_usage":{"is_enabled":false}}},
+     "mcpServers":{}}
+    """#.utf8)
+
+    @Test func parsesClaudeCodesCachedPlanUsage() throws {
+        let plan = try #require(ClaudePlanStatus.parse(claudeJSON: Self.claudeJSON))
+        #expect(plan.windows.map(\.key) == ["five_hour", "seven_day"])          // internal / null windows skipped
+        #expect(plan.windows[0].usedPercent == 19)
+        #expect(plan.windows[1].usedPercent == 42.5)
+        #expect(plan.windows[0].resetsAt == ISO8601DateFormatter().date(from: "2026-11-27T00:50:00Z"))
+        #expect(plan.windows[0].label == "5-hour session")
+        #expect(plan.fetchedAt == Date(timeIntervalSince1970: 1_795_723_499.477))
+        let afterReset = ISO8601DateFormatter().date(from: "2026-11-27T01:00:00Z")!
+        #expect(plan.windows[0].hasReset(at: afterReset))
+        #expect(!plan.windows[1].hasReset(at: afterReset))
+        #expect(ClaudePlanStatus.parse(claudeJSON: Data("{}".utf8)) == nil)
+        #expect(ClaudePlanStatus.parse(claudeJSON: nil) == nil)
+    }
+
+    @Test func preferencesDefaultsPersistAndTolerateOldData() throws {
+        let name = "NotchDeckUsagePrefs.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        let settings = SettingsStore(defaults: defaults)
+        #expect(settings.usagePreferences == UsagePreferences())
+        #expect(settings.usagePreferences.shows(.claudeCode) && settings.usagePreferences.shows(.planLimits))
+        settings.usagePreferences.sources.remove(.aiChat)
+        settings.usagePreferences.stripItems = [.planLimits]
+        settings.usagePreferences.defaultRange = "week"
+        let reloaded = SettingsStore(defaults: defaults).usagePreferences
+        #expect(!reloaded.shows(.aiChat))
+        #expect(reloaded.strip(.planLimits) && !reloaded.strip(.todayTotals))
+        #expect(reloaded.defaultRange == "week")
+        // Data saved by an older version (missing fields) keeps the defaults for what's missing.
+        let old = try JSONDecoder().decode(UsagePreferences.self, from: Data(#"{"sources":["codex"]}"#.utf8))
+        #expect(old.sources == [.codex])
+        #expect(old.sections == Set(UsageSection.allCases))
+        #expect(old.showsAgentStrip)
+    }
+
+    @Test func hiddenSourcesLeaveTheModelBreakdown() throws {
+        let name = "NotchDeckUsageHidden.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        let settings = SettingsStore(defaults: defaults)
+        let support = FileManager.default.temporaryDirectory.appending(path: "NDUsageHidden-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: support) }
+        let store = UsageStore(settings: settings, directory: support, home: support)
+        store.recordChat(model: "claude-opus-5-5", provider: .anthropic, tokens: TokenCounts(input: 10, output: 10))
+        #expect(store.modelTotals(in: .today).count == 1)
+        settings.usagePreferences.sources.remove(.aiChat)
+        #expect(store.modelTotals(in: .today).isEmpty)
+    }
+}
+
+struct ClaudeLivePlanTests {
+    static let snapshot: [String: Any] = [
+        "model": ["display_name": "Opus"],
+        "rate_limits": [
+            "five_hour": ["used_percentage": 85.4, "resets_at": 1_800_000_000],
+            "seven_day": ["used_percentage": 38.0, "resets_at": 1_800_400_000],
+        ],
+    ]
+
+    @Test func parsesStatusLineRateLimits() throws {
+        let now = Date(timeIntervalSince1970: 1_799_990_000)
+        let plan = try #require(ClaudePlanStatus.parse(statusLine: Self.snapshot, at: now))
+        #expect(plan.isLive)
+        #expect(plan.windows.map(\.key) == ["five_hour", "seven_day"])
+        #expect(plan.windows.map(\.usedPercent) == [85.4, 38.0])
+        #expect(plan.windows[0].resetsAt == Date(timeIntervalSince1970: 1_800_000_000))
+        #expect(plan.fetchedAt == now)
+        #expect(ClaudePlanStatus.parse(statusLine: ["model": [:] as [String: Any]]) == nil)   // API users / before 1st reply
+    }
+
+    @Test func liveDataIsNotReplacedByAnOlderSavedCopy() async throws {
+        let home = FileManager.default.temporaryDirectory.appending(path: "NDLive-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try ClaudePlanAndPreferencesTests.claudeJSON.write(to: home.appending(path: ".claude.json"))   // saved copy: 19 %
+        let name = "NotchDeckLive.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = UsageStore(settings: SettingsStore(defaults: defaults), directory: home.appending(path: "support"), home: home)
+        await store.refresh()
+        #expect(store.claudePlan?.windows.first?.usedPercent == 19)
+        #expect(store.claudePlan?.isLive == false)
+        store.updateClaudeStatusLine(Self.snapshot)          // live: 85 %
+        await store.refresh()                                // the older saved copy must not win
+        #expect(store.claudePlan?.windows.first?.usedPercent == 85.4)
+        #expect(store.claudePlan?.isLive == true)
+    }
+
+    private func runScript(_ url: URL, input: [String: Any]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [url.path]
+        let stdin = Pipe(), stdout = Pipe()
+        process.standardInput = stdin
+        process.standardOutput = stdout
+        try process.run()
+        stdin.fileHandleForWriting.write(try JSONSerialization.data(withJSONObject: input))
+        try stdin.fileHandleForWriting.close()
+        process.waitUntilExit()
+        return String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    @Test func installsRunsAndUninstallsTheStatusLine() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "NDStatusLine-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let settingsURL = dir.appending(path: "claude/settings.json")
+        let scriptURL = dir.appending(path: "support/claude-statusline.sh")
+        try FileManager.default.createDirectory(at: settingsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"model":"opus","hooks":{}}"#.utf8).write(to: settingsURL)
+
+        try ClaudeStatusLineInstaller.install(settingsURL: settingsURL, scriptURL: scriptURL, port: 1, token: "tok'en")
+        #expect(ClaudeStatusLineInstaller.status(at: settingsURL) == .installed)
+        let settings = try AgentHookInstaller.readSettings(at: settingsURL)
+        #expect(settings["model"] as? String == "opus")                                  // other keys kept
+        #expect((settings["statusLine"] as? [String: Any])?["command"] as? String == "\"\(scriptURL.path)\"")
+        let attributes = try FileManager.default.attributesOfItem(atPath: scriptURL.path)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700)          // holds the token
+        // Port 1 has no server: the forward fails silently and the status line still prints.
+        #expect(try runScript(scriptURL, input: Self.snapshot) == "Session 85% · Week 38%")
+        #expect(try runScript(scriptURL, input: ["model": [:] as [String: Any]]) == "")
+
+        try ClaudeStatusLineInstaller.uninstall(settingsURL: settingsURL, scriptURL: scriptURL)
+        #expect(ClaudeStatusLineInstaller.status(at: settingsURL) == .notInstalled)
+        #expect(!FileManager.default.fileExists(atPath: scriptURL.path))
+    }
+
+    @Test func wrapsAndRestoresAnExistingStatusLine() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "NDStatusLine-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let settingsURL = dir.appending(path: "claude/settings.json")
+        let scriptURL = dir.appending(path: "support/claude-statusline.sh")
+        try FileManager.default.createDirectory(at: settingsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"statusLine":{"type":"command","command":"echo 'my line'"}}"#.utf8).write(to: settingsURL)
+        #expect(ClaudeStatusLineInstaller.status(at: settingsURL) == .otherStatusLine)
+
+        try ClaudeStatusLineInstaller.install(settingsURL: settingsURL, scriptURL: scriptURL, port: 1, token: "t")
+        #expect(try runScript(scriptURL, input: Self.snapshot) == "my line")              // yours keeps showing
+        try ClaudeStatusLineInstaller.install(settingsURL: settingsURL, scriptURL: scriptURL, port: 2, token: "t")   // reinstall
+        #expect(try runScript(scriptURL, input: Self.snapshot) == "my line")
+
+        try ClaudeStatusLineInstaller.uninstall(settingsURL: settingsURL, scriptURL: scriptURL)
+        let restored = try AgentHookInstaller.readSettings(at: settingsURL)["statusLine"] as? [String: Any]
+        #expect(restored?["command"] as? String == "echo 'my line'")
+    }
+}
+
+struct VisualizerAnimationTests {
+    /// The keyframe loop must join up seamlessly: the level at the end of a loop equals the start.
+    @Test func barsLoopSeamlessly() {
+        for index in 0..<6 {
+            let start = VisualizerLayerView.barLevel(index: index, time: 0)
+            let end = VisualizerLayerView.barLevel(index: index, time: VisualizerLayerView.barLoop)
+            #expect(abs(start - end) < 1e-9)
+            for step in 0..<60 {
+                let level = VisualizerLayerView.barLevel(index: index, time: Double(step) * 0.1)
+                #expect((0.2...1.0).contains(level))
+            }
+        }
+    }
+
+    @Test func wavePathsHaveMatchingShapes() {
+        // Keyframed paths must have the same number of points to interpolate.
+        let size = CGSize(width: 16, height: 14)
+        let a = VisualizerLayerView.wavePath(size: size, phase: 0, amplitude: 5)
+        let b = VisualizerLayerView.wavePath(size: size, phase: 1, amplitude: 5)
+        func points(_ path: CGPath) -> Int { var n = 0; path.applyWithBlock { _ in n += 1 }; return n }
+        #expect(points(a) == points(b))
+        #expect(points(a) >= 9)
+    }
+
+    @Test func viewAnimatesOnlyWhilePlaying() {
+        let view = VisualizerLayerView(frame: NSRect(x: 0, y: 0, width: 16, height: 14))
+        view.configure(style: .bars, barCount: 4, colors: [NSColor.red.cgColor], isPlaying: true)
+        view.layout()
+        let bars = view.layer?.sublayers ?? []
+        #expect(bars.count == 4)
+        #expect(bars.allSatisfy { $0.animation(forKey: "level") != nil })
+        view.configure(style: .bars, barCount: 4, colors: [NSColor.red.cgColor], isPlaying: false)
+        #expect(bars.allSatisfy { $0.animation(forKey: "level") == nil })
+        view.configure(style: .wave, barCount: 4, colors: [NSColor.red.cgColor], isPlaying: true)
+        view.layout()
+        #expect(view.layer?.sublayers?.count == 1)
+        #expect(view.layer?.sublayers?.first?.mask?.animation(forKey: "wave") != nil)
+    }
+}
+
+struct MonitorAccentTests {
+    @Test func systemMonitorColorDefaultsToBlueAndPersists() {
+        let name = "NotchDeckMonitorAccent.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        let settings = SettingsStore(defaults: defaults)
+        #expect(settings.systemMonitorAccent == .blue)
+        settings.systemMonitorAccent = .amber
+        #expect(SettingsStore(defaults: defaults).systemMonitorAccent == .amber)
+        settings.systemMonitorAccent = .artwork          // not offered for the System tab
+        #expect(settings.systemMonitorAccent == .blue)
     }
 }
 

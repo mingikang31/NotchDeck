@@ -5,6 +5,7 @@ struct AgentHooksModuleView: View {
     let tokens: ThemeTokens
 
     @Environment(AgentHookStore.self) private var hooks
+    @Environment(SettingsStore.self) private var settings
     @Environment(\.settingsOpener) private var settingsOpener
 
     var body: some View {
@@ -16,8 +17,10 @@ struct AgentHooksModuleView: View {
             } else {
                 IdleAgentView(tokens: tokens) { settingsOpener.open(.aiAgents) }
             }
-            // Live session tokens / estimated cost and MCP servers in use, next to the queue.
-            AgentUsageStrip(tokens: tokens)
+            // Live session tokens / estimated cost, MCP servers and plan limits, next to the queue.
+            if settings.usagePreferences.showsAgentStrip {
+                AgentUsageStrip(tokens: tokens)
+            }
         }
     }
 }

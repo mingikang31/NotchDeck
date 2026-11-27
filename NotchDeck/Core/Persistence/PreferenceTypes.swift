@@ -215,3 +215,62 @@ nonisolated struct ModuleConfiguration: Codable, Equatable, Identifiable, Sendab
         return result
     }
 }
+
+/// Parts of the Usage tab that can be shown or hidden (Settings → AI & Agents → Usage).
+nonisolated enum UsageSection: String, Codable, CaseIterable, Identifiable, Sendable {
+    case byModel, planLimits, mcpServers, costNote
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .byModel: "Breakdown by model"
+        case .planLimits: "Plan limits"
+        case .mcpServers: "MCP servers"
+        case .costNote: "Note on estimates"
+        }
+    }
+}
+
+/// What the one-line usage strip under the Agent Hooks queue shows.
+nonisolated enum AgentStripItem: String, Codable, CaseIterable, Identifiable, Sendable {
+    case activeSession, mcpInUse, todayTotals, planLimits
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .activeSession: "Active session tokens and cost"
+        case .mcpInUse: "MCP servers in use"
+        case .todayTotals: "Today's totals"
+        case .planLimits: "Plan limits"
+        }
+    }
+}
+
+/// Usage tab customization.
+nonisolated struct UsagePreferences: Codable, Equatable, Sendable {
+    var sources: Set<UsageSource> = Set(UsageSource.allCases)
+    var sections: Set<UsageSection> = Set(UsageSection.allCases)
+    var showsAgentStrip = true
+    var stripItems: Set<AgentStripItem> = Set(AgentStripItem.allCases)
+    /// "today", "week" or "month".
+    var defaultRange = "today"
+
+    func shows(_ source: UsageSource) -> Bool { sources.contains(source) }
+    func shows(_ section: UsageSection) -> Bool { sections.contains(section) }
+    func strip(_ item: AgentStripItem) -> Bool { showsAgentStrip && stripItems.contains(item) }
+
+    /// Tolerates fields added in later versions (missing keys keep their defaults).
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = UsagePreferences()
+        sources = try c.decodeIfPresent(Set<UsageSource>.self, forKey: .sources) ?? defaults.sources
+        sections = try c.decodeIfPresent(Set<UsageSection>.self, forKey: .sections) ?? defaults.sections
+        showsAgentStrip = try c.decodeIfPresent(Bool.self, forKey: .showsAgentStrip) ?? defaults.showsAgentStrip
+        stripItems = try c.decodeIfPresent(Set<AgentStripItem>.self, forKey: .stripItems) ?? defaults.stripItems
+        defaultRange = try c.decodeIfPresent(String.self, forKey: .defaultRange) ?? defaults.defaultRange
+    }
+}

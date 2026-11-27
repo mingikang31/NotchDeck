@@ -160,6 +160,20 @@ Or open `NotchDeck.xcodeproj` in Xcode and press ⌘R / ⌘U. New `.swift` files
   only when a limit is close or hit); configured MCP servers (green dot = used in the active session).
   The **Agent Hooks** tab shows a one-line version under the approval queue (active session tokens and cost,
   MCP servers used, today's totals).
+  - **Plan limits — Claude Code.** Live source: **Settings → AI & Agents → Usage → Live Claude Code plan
+    usage → Connect.** Claude Code passes its status line command a JSON snapshot after every reply, and for
+    Pro / Max / Ultra it includes `rate_limits.five_hour` / `seven_day` (`used_percentage` 0–100, `resets_at`
+    epoch s); hooks don't get this. Connect installs `~/Library/Application Support/NotchDeck/claude-statusline.sh`
+    (0700, holds the local token) as `statusLine` in `~/.claude/settings.json` (backed up first). It forwards the
+    snapshot to `POST 127.0.0.1:<port>/notchdeck/statusline` in the background and prints
+    "Session 85% · Week 38%" (or runs and prints your previous status line, which Disconnect restores).
+    Needs the Agent Hooks module on (its server). Claude Code may need a new session to pick it up.
+  - Without Connect, the fallback is `~/.claude.json` → `cachedUsageUtilization`, a copy Claude Code saves only
+    now and then. **That's why the first version showed 19 % when the real numbers were ~85 % / ~38 %**: the
+    copy was ~9 hours old. The tab says which source it's showing; live data is never replaced by an older copy.
+  - **Customize** in Settings → AI & Agents → Usage: which sources (AI Chat / Claude Code / Codex), which
+    sections (by model, plan limits, MCP servers, note), the range it opens on, and whether / what the
+    one-line strip under the Agent Hooks queue shows. Prices moved there too (Usage · Prices).
   - AI Chat cost is real (your API keys); Claude Code / Codex cost is "≈" an estimate at API list prices.
   - No price for a model → cost "—" (or "+" when partly priced). Add prices in Settings → Modules → Usage ·
     Prices (e.g. `gpt-5*` for Codex).
@@ -504,7 +518,10 @@ which gives the app a **stable identity across every version and update**.
   fine for a notarized direct download; they'd be a problem only for the Mac App Store.)
 - **CPU watts show "—" on this M4 / macOS 27:** IOReport's CPU energy channels read 0 even under load (probed
   2026-11-26); GPU energy works. "—" means *unavailable*, never zero; it gets a tooltip saying why.
-- **Colors** follow the bundled data-visualization guidance: one accent blue for magnitude (usage fills,
+- **Color** is selectable (Settings → Modules → System Monitor → Color: rose / violet / blue / teal / amber /
+  graphite, the visualizer's palette without "Match Album Art"); default blue. Passed down as the
+  `monitorAccent` environment value.
+- **Colors** follow the bundled data-visualization guidance: one accent color for magnitude (usage fills,
   sparkline "now"), a same-hue track behind meters, status colors only for memory pressure and thermal state,
   always with an icon and label. Contrast checked on the black surface (all pass) and the dark glass surface
   (critical red is 2.6:1 there, covered by its visible label).
@@ -619,11 +636,27 @@ which gives the app a **stable identity across every version and update**.
   went through ISO8601DateFormatter. Now: exact `"type":"assistant"` + `"output_tokens"` pre-filter, a manual
   timestamp parser, regex-free model-name normalization, a price cache, cached summaries (recomputed only
   when records or prices change), and no republish when a refresh finds nothing new.
+- **Visualizer runs in the render server (2026-11-26):** the bars / wave were a SwiftUI `TimelineView` at 30 fps,
+  and every frame re-laid-out the whole notch window. They aren't audio-driven (macOS doesn't share other apps'
+  levels), so they're now looping Core Animation keyframes (`VisualizerLayerView`): bars loop every 6 s (each
+  bar's frequencies rounded to whole cycles per loop, so the loop is seamless), the wave every 2π/6 s. NotchDeck
+  does no per-frame work, and the motion is smoother (display refresh rate).
+  Measured, Release build, collapsed, Spotify playing, glass + wave + lyrics (30 s CPU-time averages):
+  **CPU 10–13 % → 4–6 %, wakeups ~1,000/s → ~340/s, main thread ~98 % idle.** (Debug builds use ~2× the
+  CPU of Release.) Most remaining wakeups are system threads, chiefly the global mouse-move monitor that
+  hover detection needs (only while the mouse moves).
 - Lyric line redraws are scheduled at each line's start time (re-planned on pause / seek / track change)
   instead of polling 5×/s.
 - Measured on this Mac (collapsed, Spotify playing, glass): NotchDeck ≈ 9.5 % CPU averaged over 10 s (from
   `ps` CPU time; `top` / `sample` readings overstate it). WindowServer ≈ 37 % without NotchDeck vs ≈ 45 % with
   it: the glass blur behind the 30 fps visualizer.
+
+### Release builds and library validation
+- A **Release** build that's ad-hoc signed with the hardened runtime **won't launch**: library validation
+  rejects the embedded Sparkle framework ("mapping process and mapped file have different Team IDs").
+  Debug builds aren't affected. Signing with a Developer ID team (already a release step) fixes it, since
+  everything gets re-signed with one team. For local performance measurements:
+  `xcodebuild … -configuration Release -derivedDataPath build/PerfRelease ENABLE_HARDENED_RUNTIME=NO build`.
 
 ### Clipboard
 - **macOS asks before an app reads what other apps copied** (`NSPasteboard.accessBehavior`, macOS 15.4+).
@@ -805,6 +838,21 @@ Scripts/                       license-keygen.swift
 ---
 
 ## 9. Log
+
+- **2026-11-26 — CPU pass.** Visualizer moved to Core Animation keyframes (Release, collapsed with music:
+  CPU 10–13 % → 4–6 %, wakeups ~1,000/s → ~340/s). Found that ad-hoc Release builds don't launch (Sparkle
+  library validation). Agent-hook server tests wait longer / retry ports (were flaky under load). 229 tests.
+
+- **2026-11-26 — Live Claude Code plan usage; System Monitor color.** The plan % was wrong (19 % vs ~85 % / ~38 %):
+  it came from Claude Code's occasionally-refreshed cache. Added the documented live source (status line
+  snapshot → NotchDeck, opt-in Connect button, wraps / restores an existing status line). System Monitor color
+  picker using the visualizer palette. 226 tests.
+
+- **2026-11-26 — Usage: Claude Code plan limits + customization; settings reorganized.** Claude Code 5-hour /
+  weekly plan usage from Claude Code's own cache; Usage display preferences; Usage settings and prices moved
+  to AI & Agents (all AI / API / agent settings now live there). API key rows: provider name on the left, the
+  "saved / paste to replace" hint inside the field (a Form turned the field's title into a stray label), green
+  check when a key is saved. Compact Agent Hooks usage line. 220 tests.
 
 - **2026-11-26 — Visualizer accent color.** The accent color was only used when the track had no album art,
   i.e. never while music played (the artwork palette always won). The chosen accent now always colors the

@@ -31,6 +31,7 @@ final class SettingsStore {
         static let agentServerPort = "notchdeck.agentServerPort"
         static let systemMonitorInterval = "notchdeck.systemMonitor.interval"
         static let systemOverviewStyle = "notchdeck.systemMonitor.overviewStyle"
+        static let systemMonitorAccent = "notchdeck.systemMonitor.accent"
         static let agentHookToken = "notchdeck.agentHookToken"
         static let agentChimeEnabled = "notchdeck.agentChimeEnabled"
         static let liveBattery = "notchdeck.live.battery"
@@ -49,6 +50,7 @@ final class SettingsStore {
         static let lyricsEnabled = "notchdeck.media.lyricsEnabled"
         static let lyricsOffset = "notchdeck.media.lyricsOffset"
         static let customModelPrices = "notchdeck.usage.customPrices"
+        static let usagePreferences = "notchdeck.usage.preferences"
         static let geometryOutline = "notchdeck.debug.showsGeometryOutline"
         static let startExpanded = "notchdeck.debug.startExpanded"
         static let startModule = "notchdeck.debug.startModule"
@@ -141,6 +143,13 @@ final class SettingsStore {
 
     /// How often the System tab samples CPU / GPU / memory, in seconds.
     static let systemMonitorIntervals: [Double] = [0.25, 0.5, 1, 2, 5]
+    /// Color of the System tab's meters and graphs (same palette as the visualizer; no album art).
+    var systemMonitorAccent: AccentColorChoice {
+        didSet {
+            if systemMonitorAccent == .artwork { systemMonitorAccent = .blue }
+            defaults.set(systemMonitorAccent.rawValue, forKey: Key.systemMonitorAccent)
+        }
+    }
     var systemOverviewStyle: SystemOverviewStyle {
         didSet { defaults.set(systemOverviewStyle.rawValue, forKey: Key.systemOverviewStyle) }
     }
@@ -246,6 +255,10 @@ final class SettingsStore {
         }
     }
     /// The user's own per-model prices (override the built-in table; `*` suffix = prefix match).
+    /// What the Usage tab and the Agent Hooks strip show.
+    var usagePreferences: UsagePreferences {
+        didSet { defaults.set(try? JSONEncoder().encode(usagePreferences), forKey: Key.usagePreferences) }
+    }
     var customModelPrices: [ModelPrice] {
         didSet { defaults.set(try? JSONEncoder().encode(customModelPrices), forKey: Key.customModelPrices) }
     }
@@ -299,6 +312,8 @@ final class SettingsStore {
         customEndpointURL = defaults.string(forKey: Key.customEndpointURL) ?? ""
         handAddedModels = (defaults.stringArray(forKey: Key.handAddedModels) ?? []).compactMap(ChatModelRef.init(storageKey:))
         systemOverviewStyle = choice(Key.systemOverviewStyle, SystemOverviewStyle.cards)
+        let storedMonitorAccent = choice(Key.systemMonitorAccent, AccentColorChoice.blue)
+        systemMonitorAccent = storedMonitorAccent == .artwork ? .blue : storedMonitorAccent
         systemMonitorInterval = Self.nearestInterval(to: defaults.object(forKey: Key.systemMonitorInterval) as? Double ?? 1)
         agentHookToken = defaults.string(forKey: Key.agentHookToken) ?? ""
         agentChimeEnabled = defaults.object(forKey: Key.agentChimeEnabled) as? Bool ?? true
@@ -322,6 +337,8 @@ final class SettingsStore {
             .flatMap { try? JSONDecoder().decode([WorldClockCity].self, from: $0) } ?? CityCatalog.defaults
         lyricsEnabled = defaults.bool(forKey: Key.lyricsEnabled)
         lyricsOffset = min(max(defaults.double(forKey: Key.lyricsOffset), Self.lyricsOffsetRange.lowerBound), Self.lyricsOffsetRange.upperBound)
+        usagePreferences = defaults.data(forKey: Key.usagePreferences)
+            .flatMap { try? JSONDecoder().decode(UsagePreferences.self, from: $0) } ?? UsagePreferences()
         customModelPrices = defaults.data(forKey: Key.customModelPrices)
             .flatMap { try? JSONDecoder().decode([ModelPrice].self, from: $0) } ?? []
 

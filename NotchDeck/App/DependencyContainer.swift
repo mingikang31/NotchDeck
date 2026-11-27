@@ -151,6 +151,9 @@ final class DependencyContainer {
             self?.services.usage.recordChat(model: model, provider: provider, tokens: tokens)
         }
         // A finished Claude Code / Codex task wrote new usage to its log.
+        services.agentHooks.onStatusLine = { [weak self] json in
+            self?.services.usage.updateClaudeStatusLine(json)
+        }
         services.agentHooks.onTaskFinished = { [weak self] in
             Task { await self?.services.usage.refresh() }
         }

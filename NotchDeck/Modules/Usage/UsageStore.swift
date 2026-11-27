@@ -9,6 +9,7 @@ actor UsageScanner {
         var newRecords: [UsageRecord] = []
         var claudeLimit: ClaudeLimitStatus?
         var codexPlan: CodexPlanStatus?
+        var claudePlan: ClaudePlanStatus?
         /// sessionID → (MCP server → last call).
         var mcpUse: [String: [String: Date]] = [:]
         /// Working directories of recent Claude Code sessions (for project-scoped MCP configs).
@@ -77,8 +78,10 @@ actor UsageScanner {
         result.claudeLimit = claudeLimit
         result.codexPlan = codexPlan
         result.mcpUse = mcpUse
+        let claudeConfig = FileManager.default.contents(atPath: claudeJSON.path)
+        result.claudePlan = ClaudePlanStatus.parse(claudeJSON: claudeConfig)
         result.mcpServers = MCPConfigReader.claudeServers(
-            claudeJSON: FileManager.default.contents(atPath: claudeJSON.path),
+            claudeJSON: claudeConfig,
             projectDirectories: result.recentProjectDirectories
         ) + MCPConfigReader.codexServers(configTOML: try? String(contentsOf: codexConfig, encoding: .utf8))
         return result
@@ -179,6 +182,7 @@ final class UsageStore {
     private(set) var records: [UsageRecord] = []
     private(set) var claudeLimit: ClaudeLimitStatus?
     private(set) var codexPlan: CodexPlanStatus?
+    private(set) var claudePlan: ClaudePlanStatus?
     private(set) var mcpServers: [MCPServerInfo] = []
     private(set) var mcpUse: [String: [String: Date]] = [:]
     private(set) var lastRefresh: Date?
@@ -208,11 +212,18 @@ final class UsageStore {
         self.settings = settings
         chatFile = directory.appending(path: "usage-chat.json")
         scanner = UsageScanner(home: home)
+        range = Range(rawValue: settings.usagePreferences.defaultRange) ?? .today
         loadChat()
         publish()
     }
 
     // MARK: Recording (AI Chat)
+
+    /// A status-line snapshot from Claude Code (live plan usage). Snapshots without plan data are ignored.
+    func updateClaudeStatusLine(_ json: [String: Any], at date: Date = Date()) {
+        guard let live = ClaudePlanStatus.parse(statusLine: json, at: date) else { return }
+        if claudePlan != live { claudePlan = live }
+    }
 
     func recordChat(model: String, provider: ChatProvider, tokens: TokenCounts, date: Date = Date()) {
         guard !tokens.isEmpty else { return }
@@ -256,6 +267,10 @@ final class UsageStore {
         agentRecords.append(contentsOf: result.newRecords)
         if claudeLimit != result.claudeLimit { claudeLimit = result.claudeLimit }
         if codexPlan != result.codexPlan { codexPlan = result.codexPlan }
+        // The cached copy only replaces what we have if it's newer (live status-line data usually is).
+        if let cached = result.claudePlan, (cached.fetchedAt ?? .distantPast) > (claudePlan?.fetchedAt ?? .distantPast) {
+            claudePlan = cached
+        }
         if mcpUse != result.mcpUse { mcpUse = result.mcpUse }
         if mcpServers != result.mcpServers { mcpServers = result.mcpServers }
         lastRefresh = Date()
@@ -327,7 +342,7 @@ final class UsageStore {
     }
 
     func modelTotals(in range: Range, now: Date = Date()) -> [ModelTotals] {
-        let key = summaryKey(range, now: now)
+        let key = summaryKey(range, now: now) + "|" + settings.usagePreferences.sources.map(\.rawValue).sorted().joined()
         if let cached = modelTotalsCache[key] { return cached }
         let value = computeModelTotals(in: range, now: now)
         modelTotalsCache[key] = value
@@ -335,7 +350,10 @@ final class UsageStore {
     }
 
     private func computeModelTotals(in range: Range, now: Date) -> [ModelTotals] {
-        let groups = Dictionary(grouping: records(in: range, now: now)) { "\($0.source.rawValue)\u{1F}\($0.model)" }
+        let shown = settings.usagePreferences.sources
+        let groups = Dictionary(grouping: records(in: range, now: now).filter { shown.contains($0.source) }) {
+            "\($0.source.rawValue)\u{1F}\($0.model)"
+        }
         return groups.values.compactMap { group in
             guard let first = group.first else { return nil }
             return ModelTotals(model: first.model, source: first.source, totals: totals(group))

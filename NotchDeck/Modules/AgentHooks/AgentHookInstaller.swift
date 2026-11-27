@@ -212,6 +212,11 @@ nonisolated enum AgentHookInstaller {
     }
 
     /// Backs up the existing file (`<name>.notchdeck-backup`), then writes atomically.
+    static func writeSettings(_ settings: [String: Any], to url: URL) throws {
+        try write(settings, to: url)
+    }
+
+    /// Backs up the existing file (`<name>.notchdeck-backup`), then writes atomically.
     private static func write(_ settings: [String: Any], to url: URL) throws {
         let fm = FileManager.default
         try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

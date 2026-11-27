@@ -41,7 +41,6 @@ struct ModulesSettingsPane: View {
             PomodoroSettings()
             ClipboardSettings()
             WorldClockSettings()
-            UsagePriceSettings()
         }
         .padding(20)
         }
@@ -171,6 +170,15 @@ private struct SystemMonitorSettings: View {
                     Text("Samples only while the System tab is open.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
+                }
+                HStack(spacing: 8) {
+                    Text("Color")
+                    ForEach(AccentColorChoice.allCases.filter { $0 != .artwork }) { choice in
+                        MonitorColorSwatch(choice: choice, isSelected: settings.systemMonitorAccent == choice) {
+                            settings.systemMonitorAccent = choice
+                        }
+                    }
+                    Spacer()
                 }
                 HStack(alignment: .firstTextBaseline) {
                     Picker("CPU / GPU / memory style", selection: $settings.systemOverviewStyle) {
@@ -427,82 +435,24 @@ private struct WorldClockSettings: View {
     }
 }
 
-/// Prices used for cost estimates: the built-in Claude table plus the user's own rows.
-private struct UsagePriceSettings: View {
-    @Environment(SettingsStore.self) private var settings
-    @State private var showsBuiltIn = false
-    @State private var draft = ModelPrice.row("", 0, 0)
-    @State private var draftCacheRead = ""
+
+/// One color choice for the System tab (same palette as the visualizer accent).
+private struct MonitorColorSwatch: View {
+    let choice: AccentColorChoice
+    let isSelected: Bool
+    let action: () -> Void
 
     var body: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Cost estimates use list prices per million tokens. Add a row for any model without one (e.g. Codex's OpenAI models or Gemini); end a pattern with * to match a family (gpt-5*). Your rows override the built-in ones.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if !settings.customModelPrices.isEmpty {
-                    ForEach(settings.customModelPrices) { price in
-                        HStack {
-                            Text(price.pattern).font(.system(.body, design: .monospaced))
-                            Spacer()
-                            Text(Self.describe(price)).font(.callout).foregroundStyle(.secondary)
-                            Button { settings.customModelPrices.removeAll { $0 == price } } label: {
-                                Image(systemName: "minus.circle.fill")
-                            }
-                            .buttonStyle(.borderless)
-                        }
-                    }
-                }
-
-                HStack(spacing: 6) {
-                    TextField("model or pattern*", text: $draft.pattern)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 170)
-                    TextField("input $", value: $draft.input, format: .number).textFieldStyle(.roundedBorder).frame(width: 64)
-                    TextField("output $", value: $draft.output, format: .number).textFieldStyle(.roundedBorder).frame(width: 64)
-                    TextField("cached $", text: $draftCacheRead).textFieldStyle(.roundedBorder).frame(width: 64)
-                        .help("Cache-read price; blank = 10% of input")
-                    Button("Add") { addDraft() }
-                        .disabled(draft.pattern.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-
-                DisclosureGroup("Built-in Claude prices", isExpanded: $showsBuiltIn) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(ModelPricing.builtIn) { price in
-                            HStack {
-                                Text(price.pattern).font(.system(.callout, design: .monospaced))
-                                Spacer()
-                                Text(Self.describe(price)).font(.callout).foregroundStyle(.secondary)
-                            }
-                        }
-                        Text(ModelPricing.sourceNote + ". Claude Haiku 5.5 prompts over 100K tokens are priced 5×; fast mode 2×; US-only inference 1.1×.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 4)
-                    }
-                    .padding(.top, 4)
-                }
-            }
-            .padding(6)
-        } label: {
-            Label("Usage · Prices", systemImage: "dollarsign.circle")
+        Button(action: action) {
+            Circle()
+                .fill(choice.color)
+                .frame(width: 16, height: 16)
+                .overlay { Circle().strokeBorder(Color.primary.opacity(isSelected ? 0.9 : 0), lineWidth: 2).padding(-3) }
+                .padding(3)
         }
-    }
-
-    private func addDraft() {
-        var row = ModelPrice.row(draft.pattern.trimmingCharacters(in: .whitespaces).lowercased(), draft.input, draft.output,
-                                 cacheRead: Double(draftCacheRead))
-        row.pattern = row.pattern.isEmpty ? draft.pattern : row.pattern
-        settings.customModelPrices.removeAll { $0.pattern == row.pattern }
-        settings.customModelPrices.append(row)
-        draft = ModelPrice.row("", 0, 0)
-        draftCacheRead = ""
-    }
-
-    static func describe(_ price: ModelPrice) -> String {
-        func money(_ value: Double) -> String { value.formatted(.currency(code: "USD").precision(.fractionLength(0...3))) }
-        return "\(money(price.input)) in · \(money(price.output)) out · \(money(price.cacheRead)) cached"
+        .buttonStyle(.plain)
+        .help(choice.displayName)
+        .accessibilityLabel("\(choice.displayName) system monitor color")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

@@ -3,9 +3,12 @@ import SwiftUI
 /// Colors for the System tab (dark surfaces only; validated for contrast on the notch's black and
 /// dark-glass surfaces). One accent hue for magnitude; status colors only for real states, and
 /// always next to an icon + label.
+extension EnvironmentValues {
+    /// The System tab's magnitude color (Settings → Modules → System Monitor → Color).
+    @Entry var monitorAccent = AccentColorChoice.blue.color
+}
+
 private enum MonitorPalette {
-    static let accent = Color(hex: 0x338CED)        // magnitude: usage fills, sparkline "now"
-    static let accentTrack = Color(hex: 0x338CED).opacity(0.18) // lighter step of the same hue
     static let trend = Color.white.opacity(0.38)     // de-emphasized sparkline history
     static let primaryInk = Color(hex: 0xEFEFEF)
     static let secondaryInk = Color(hex: 0x9C9C9C)
@@ -56,6 +59,8 @@ struct SystemMonitorModuleView: View {
                     .frame(maxWidth: .infinity, minHeight: 200)
             }
         }
+        // Usage fills, meters, graphs and sparkline "now" use the color chosen in Settings.
+        .environment(\.monitorAccent, settings.systemMonitorAccent.color)
         .onAppear { monitor.viewAppeared() }
         .onDisappear { monitor.viewDisappeared() }
     }
@@ -156,16 +161,17 @@ private struct OverviewSection: View {
 
 /// Horizontal meter with a same-hue track, 4 px rounded fill anchored at the leading edge.
 private struct HorizontalMeter: View {
+    @Environment(\.monitorAccent) private var accent
     let fraction: Double?
     var height: CGFloat = 8
 
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .leading) {
-                Capsule().fill(MonitorPalette.accentTrack)
+                Capsule().fill(accent.opacity(0.18))
                 if let fraction {
                     Capsule()
-                        .fill(MonitorPalette.accent)
+                        .fill(accent)
                         .frame(width: max(height, proxy.size.width * CGFloat(min(max(fraction, 0), 1))))
                 }
             }
@@ -244,6 +250,7 @@ private struct AreaTile: View {
 
 /// Single-series area: a 2 px accent line over a soft fill of the same hue, placed by time.
 private struct AreaGraph: View {
+    @Environment(\.monitorAccent) private var accent
     let samples: [SystemMonitorStore.Sample]
 
     var body: some View {
@@ -264,13 +271,13 @@ private struct AreaGraph: View {
                     path.addLine(to: CGPoint(x: last.x, y: size.height))
                     path.closeSubpath()
                 }
-                .fill(LinearGradient(colors: [MonitorPalette.accent.opacity(0.32), MonitorPalette.accent.opacity(0.04)],
+                .fill(LinearGradient(colors: [accent.opacity(0.32), accent.opacity(0.04)],
                                      startPoint: .top, endPoint: .bottom))
                 Path { path in
                     path.move(to: first)
                     points.dropFirst().forEach { path.addLine(to: $0) }
                 }
-                .stroke(MonitorPalette.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                .stroke(accent, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
             }
         }
         .accessibilityHidden(true)
@@ -339,6 +346,7 @@ private struct StatTile: View {
 /// 0…1 values over a fixed 2-minute window, placed by time ("now" at the right edge), so the
 /// window stays honest whatever the refresh rate, or if it changed mid-way.
 private struct Sparkline: View {
+    @Environment(\.monitorAccent) private var accent
     let samples: [SystemMonitorStore.Sample]
 
     var body: some View {
@@ -367,11 +375,11 @@ private struct Sparkline: View {
                         path.move(to: points[points.count - 2])
                         path.addLine(to: points[points.count - 1])
                     }
-                    .stroke(MonitorPalette.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .stroke(accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                 }
                 if let last = points.last {
                     Circle()
-                        .fill(MonitorPalette.accent)
+                        .fill(accent)
                         .overlay(Circle().strokeBorder(Color.black, lineWidth: 2)) // surface ring
                         .frame(width: 8, height: 8)
                         .position(last)
@@ -415,14 +423,15 @@ private struct ClusterBars: View {
 
 /// Vertical meter: same-hue track, 4 px rounded fill anchored at the baseline.
 private struct CoreMeter: View {
+    @Environment(\.monitorAccent) private var accent
     let usage: Double
 
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .bottom) {
-                RoundedRectangle(cornerRadius: 4, style: .continuous).fill(MonitorPalette.accentTrack)
+                RoundedRectangle(cornerRadius: 4, style: .continuous).fill(accent.opacity(0.18))
                 UnevenRoundedRectangle(cornerRadii: .init(topLeading: 4, bottomLeading: 2, bottomTrailing: 2, topTrailing: 4), style: .continuous)
-                    .fill(MonitorPalette.accent)
+                    .fill(accent)
                     .frame(height: max(2, proxy.size.height * CGFloat(min(max(usage, 0), 1))))
             }
         }

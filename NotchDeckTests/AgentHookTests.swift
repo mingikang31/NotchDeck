@@ -165,9 +165,18 @@ struct AgentHookServerTests {
         return (AgentHookStore(settings: settings, configURLs: urls), settings)
     }
 
+    /// Waits for the hook server (up to ~6 s: the parallel test run keeps the main thread busy). If the
+    /// random port was taken, moves to another one (changing the port restarts the server).
     private func waitForServer(_ store: AgentHookStore) async {
-        for _ in 0..<200 {
-            if case .running = store.serverState { return }
+        for _ in 0..<600 {
+            switch store.serverState {
+            case .running:
+                return
+            case .failed:
+                store.settingsForTests.agentServerPort = Int.random(in: 51_000...59_000)
+            default:
+                break
+            }
             try? await Task.sleep(for: .milliseconds(10))
         }
     }
@@ -193,6 +202,26 @@ struct AgentHookServerTests {
 
     private func waitForPending(_ store: AgentHookStore, count: Int) async {
         for _ in 0..<300 where store.pending.count != count { try? await Task.sleep(for: .milliseconds(10)) }
+    }
+
+    /// The status line script's POST reaches the store (live Claude Code plan usage).
+    @Test func statusLineSnapshotIsForwarded() async throws {
+        let (store, settings) = makeStore()
+        var received: [String: Any]?
+        store.onStatusLine = { received = $0 }
+        store.setActive(true)
+        defer { store.setActive(false) }
+        await waitForServer(store)
+        let body: [String: Any] = ["rate_limits": ["five_hour": ["used_percentage": 85.2, "resets_at": 1_800_000_000]]]
+        let (status, _) = try await post(ClaudeStatusLineInstaller.path, port: settings.agentServerPort, token: settings.agentHookToken, body: body).value
+        #expect(status == 200 || status == 204)
+        for _ in 0..<100 where received == nil { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(((received?["rate_limits"] as? [String: Any])?["five_hour"] as? [String: Any])?["used_percentage"] as? Double == 85.2)
+        // Wrong token: refused, nothing delivered.
+        received = nil
+        let (refused, _) = try await post(ClaudeStatusLineInstaller.path, port: settings.agentServerPort, token: "nope", body: body).value
+        #expect(refused == 403)
+        #expect(received == nil)
     }
 
     @Test func approvalRoundTrip() async throws {
