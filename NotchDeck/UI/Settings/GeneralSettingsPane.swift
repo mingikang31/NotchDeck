@@ -86,6 +86,25 @@ struct GeneralSettingsPane: View {
                 Picker("Collapse automatically", selection: $settings.autoCollapse) {
                     ForEach(AutoCollapseBehavior.allCases) { Text($0.displayName).tag($0) }
                 }
+                LabeledContent("Hover close delay") {
+                    HStack {
+                        Slider(
+                            value: Binding(
+                                get: { Double(settings.hoverCloseDelayMilliseconds) },
+                                set: { settings.hoverCloseDelayMilliseconds = Int($0) }
+                            ),
+                            in: Double(SettingsStore.hoverCloseDelayRange.lowerBound)...Double(SettingsStore.hoverCloseDelayRange.upperBound),
+                            step: 10
+                        )
+                        Text("\(settings.hoverCloseDelayMilliseconds) ms")
+                            .monospacedDigit()
+                            .frame(width: 56, alignment: .trailing)
+                    }
+                }
+                .disabled(settings.autoCollapse != .pointerExit)
+                .help(settings.autoCollapse == .pointerExit
+                      ? "How long the pointer can be outside the open notch before it closes. Coming back within this time keeps it open."
+                      : "Only used when Collapse automatically is set to “When the pointer leaves”.")
             }
 
             Section {

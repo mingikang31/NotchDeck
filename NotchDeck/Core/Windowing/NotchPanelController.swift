@@ -23,9 +23,14 @@ final class NotchPanelController {
     private var shrinkTask: Task<Void, Never>?
     private var collapseTask: Task<Void, Never>?
     /// Set when opened explicitly (menu / shortcut): pointer exit then won't auto-collapse.
-    private var isPinnedOpen = false
+    private(set) var isPinnedOpen = false
+    /// The tab a module shortcut opened (AI Chat, File Tray, Mirror, an approval card). Clicking a
+    /// different tab ends the pin, so the notch behaves as if it had been opened by hover.
+    /// nil for the whole-notch toggle (⌃⌥N / menu), which stays pinned across tabs.
+    private var pinnedModule: NotchModule?
+    /// Where the pointer is now (global coordinates). Replaceable so tests can drive the state machine.
+    var pointerLocation: () -> CGPoint = { NSEvent.mouseLocation }
 
-    private static let collapseGrace: Duration = .milliseconds(220)
 
     init(screen: NSScreen, displayID: CGDirectDisplayID, services: AppServices) {
         self.displayID = displayID
@@ -57,9 +62,11 @@ final class NotchPanelController {
 
         model.onTap = { [weak self] in self?.expandFromPill() }
         model.onRequestCollapse = { [weak self] in self?.transition(to: .collapsed) }
+        model.onUserSelectedModule = { [weak self] module in self?.userSelected(module) }
         panel.onEscape = { [weak self] in self?.handleEscape() }
         hostingView.onPointerActivity = { [weak self] in
-            self?.handlePointerMoved(to: NSEvent.mouseLocation)
+            guard let self else { return }
+            self.handlePointerMoved(to: self.pointerLocation())
         }
 
         container.dropDelegate = self
@@ -170,6 +177,17 @@ final class NotchPanelController {
         } else {
             transition(to: .expanded)
             isPinnedOpen = true
+            pinnedModule = nil
+        }
+    }
+
+    /// A tab click: leaving the tab a shortcut pinned open makes the notch collapse on pointer exit again.
+    private func userSelected(_ module: NotchModule) {
+        if isPinnedOpen, let pinnedModule, pinnedModule != module {
+            isPinnedOpen = false
+            self.pinnedModule = nil
+            // The pointer may already be outside (tab clicked, then left quickly).
+            if !expandedZone.contains(self.pointerLocation()) { schedulePendingCollapse() }
         }
     }
 
@@ -177,6 +195,7 @@ final class NotchPanelController {
         if let module { model.selectedModule = module }
         transition(to: .expanded)
         isPinnedOpen = true
+        pinnedModule = module
     }
 
     /// Hover or click on the collapsed notch: a waiting Claude Code request takes the stage, and a
@@ -281,7 +300,10 @@ final class NotchPanelController {
         dwellTask?.cancel()
         dwellTask = nil
         cancelPendingCollapse()
-        if newState != .expanded { isPinnedOpen = false }
+        if newState != .expanded {
+            isPinnedOpen = false
+            pinnedModule = nil
+        }
         guard newState != model.state else { return }
 
         withAnimation(NotchMotion.animation(to: newState)) {
@@ -321,7 +343,7 @@ final class NotchPanelController {
         dwellTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(delay))
             guard !Task.isCancelled, let self, self.model.state == .peek else { return }
-            if self.model.geometry.interactionZone(for: .peek, wing: self.wing).contains(NSEvent.mouseLocation) {
+            if self.model.geometry.interactionZone(for: .peek, wing: self.wing).contains(self.pointerLocation()) {
                 self.expandFromPill()
             } else {
                 self.transition(to: .collapsed)
@@ -329,14 +351,22 @@ final class NotchPanelController {
         }
     }
 
+    /// True while a text field in the notch has focus *and* holds unsent text (a chat draft, a to-do
+    /// being typed). Keyboard focus alone isn't enough: the panel stays key after a text field was
+    /// used, which used to block pointer-exit collapse until the user clicked outside.
+    var isEditingDraft: Bool {
+        guard let editor = panel.firstResponder as? NSTextView else { return false }
+        return !editor.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private func schedulePendingCollapse() {
-        // Never auto-collapse while the user is typing in the notch.
-        guard collapseTask == nil, !isPinnedOpen, !panel.isKeyWindow, settings.autoCollapse == .pointerExit else { return }
+        guard collapseTask == nil, !isPinnedOpen, !isEditingDraft, settings.autoCollapse == .pointerExit else { return }
         collapseTask = Task { [weak self] in
-            try? await Task.sleep(for: Self.collapseGrace)
+            // The user's hover close delay (Settings → General); returning inside cancels it.
+            try? await Task.sleep(for: .milliseconds(self?.settings.hoverCloseDelayMilliseconds ?? SettingsStore.defaultHoverCloseDelay))
             guard !Task.isCancelled, let self else { return }
             self.collapseTask = nil
-            if !self.expandedZone.contains(NSEvent.mouseLocation) {
+            if !self.expandedZone.contains(self.pointerLocation()), !self.isPinnedOpen, !self.isEditingDraft {
                 self.transition(to: .collapsed)
             }
         }

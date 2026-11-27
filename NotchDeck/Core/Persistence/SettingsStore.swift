@@ -11,6 +11,7 @@ final class SettingsStore {
         static let showsMenuBarIcon = "notchdeck.showsMenuBarIcon"
         static let displayPolicy = "notchdeck.displayPolicy"
         static let hoverDelay = "notchdeck.hoverDelayMilliseconds"
+        static let hoverCloseDelay = "notchdeck.hoverCloseDelayMilliseconds"
         static let autoCollapse = "notchdeck.autoCollapse"
         static let theme = "notchdeck.theme"
         static let sizePreset = "notchdeck.sizePreset"
@@ -51,6 +52,8 @@ final class SettingsStore {
     }
 
     static let hoverDelayRange = 0...500
+    static let hoverCloseDelayRange = 0...500
+    static let defaultHoverCloseDelay = 200
     static let agentPortRange = 1024...65535
     /// Outside macOS's ephemeral range (49152–65535), where system services and VPN clients bind
     /// (e.g. Cisco AnyConnect's vpnagentd holds 127.0.0.1:49152).
@@ -64,6 +67,15 @@ final class SettingsStore {
     var showsMenuBarIcon: Bool { didSet { defaults.set(showsMenuBarIcon, forKey: Key.showsMenuBarIcon) } }
     var displayPolicy: DisplayPolicy { didSet { defaults.set(displayPolicy.rawValue, forKey: Key.displayPolicy) } }
     /// Hover dwell before expanding (0–500 ms, default 150 ms).
+    /// How long the pointer may be outside the open notch before it collapses (0–500 ms, default
+    /// 200 ms). Only used when auto-collapse is "When the pointer leaves".
+    var hoverCloseDelayMilliseconds: Int {
+        didSet {
+            let clamped = Self.clamp(hoverCloseDelayMilliseconds, to: Self.hoverCloseDelayRange)
+            if clamped != hoverCloseDelayMilliseconds { hoverCloseDelayMilliseconds = clamped }
+            defaults.set(clamped, forKey: Key.hoverCloseDelay)
+        }
+    }
     var hoverDelayMilliseconds: Int {
         didSet {
             let clamped = Self.clamp(hoverDelayMilliseconds, to: Self.hoverDelayRange)
@@ -235,6 +247,9 @@ final class SettingsStore {
         showsMenuBarIcon = defaults.object(forKey: Key.showsMenuBarIcon) as? Bool ?? true
         displayPolicy = choice(Key.displayPolicy, DisplayPolicy.notchDisplay)
         hoverDelayMilliseconds = Self.clamp(defaults.object(forKey: Key.hoverDelay) as? Int ?? 150, to: Self.hoverDelayRange)
+        hoverCloseDelayMilliseconds = Self.clamp(
+            defaults.object(forKey: Key.hoverCloseDelay) as? Int ?? Self.defaultHoverCloseDelay, to: Self.hoverCloseDelayRange
+        )
         autoCollapse = choice(Key.autoCollapse, AutoCollapseBehavior.pointerExit)
 
         theme = choice(Key.theme, NotchTheme.classicBlack)

@@ -80,11 +80,16 @@ final class SystemKeychain: KeychainItemStore {
             case errSecSuccess:
                 return data
             case errSecItemNotFound:
-                // Move an item written by an older/unsigned build over from the login keychain (once).
+                // An item written by an older / unsigned build lives in the login keychain. Move it into
+                // the data protection keychain, but delete the login copy only once the copy has really
+                // landed there. (Development builds can *read* the data protection keychain, getting
+                // "not found", yet can't write to it; the old code then wrote back to the login keychain
+                // and deleted that same item, so secrets vanished on every other launch.)
                 let (legacyStatus, legacyData) = copy(account, dataProtection: false)
                 guard legacyStatus == errSecSuccess, let legacyData else { return nil }
-                try write(legacyData, account)
-                SecItemDelete(query(account, dataProtection: false) as CFDictionary)
+                if addToDataProtectionKeychain(legacyData, account) {
+                    SecItemDelete(query(account, dataProtection: false) as CFDictionary)
+                }
                 return legacyData
             default:
                 throw KeychainError(status: status)
@@ -96,6 +101,23 @@ final class SystemKeychain: KeychainItemStore {
         case errSecItemNotFound: return nil
         default: throw KeychainError(status: status)
         }
+    }
+
+    /// Adds a copy to the data protection keychain. False (and the login keychain is used for the rest
+    /// of this run) when this build can't write there.
+    private func addToDataProtectionKeychain(_ data: Data, _ account: String) -> Bool {
+        var item = query(account, dataProtection: true)
+        item[kSecValueData as String] = data
+        item[kSecAttrLabel as String] = "NotchDeck"
+        item[kSecAttrDescription as String] = "NotchDeck license and API keys"
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        let status = SecItemAdd(item as CFDictionary, nil)
+        if status == errSecSuccess { return true }
+        if !handleMissingEntitlement(status) {
+            logger.error("Couldn't move \(account, privacy: .public) to the data protection keychain: \(status); keeping the login keychain copy")
+        }
+        usesDataProtectionKeychain = false
+        return false
     }
 
     func write(_ data: Data, _ account: String) throws {

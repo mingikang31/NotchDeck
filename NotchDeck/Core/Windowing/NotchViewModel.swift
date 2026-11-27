@@ -17,6 +17,8 @@ final class NotchViewModel {
     @ObservationIgnored var onTap: () -> Void = {}
     /// Invoked by expanded content that wants to close the notch (e.g. before opening Settings).
     @ObservationIgnored var onRequestCollapse: () -> Void = {}
+    /// The user clicked a tab in the expanded notch (not a programmatic switch).
+    @ObservationIgnored var onUserSelectedModule: (NotchModule) -> Void = { _ in }
 
     init(geometry: NotchGeometry, displayName: String, refreshRate: Int) {
         self.geometry = geometry

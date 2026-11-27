@@ -13,6 +13,7 @@ struct SettingsStoreTests {
     @Test func defaultsMatchTheSpec() {
         let store = SettingsStore(defaults: freshDefaults())
         #expect(store.hoverDelayMilliseconds == 150)
+        #expect(store.hoverCloseDelayMilliseconds == 200)
         #expect(store.theme == .classicBlack)
         #expect(store.displayPolicy == .notchDisplay)
         #expect(store.autoCollapse == .pointerExit)
@@ -25,6 +26,10 @@ struct SettingsStoreTests {
         let defaults = freshDefaults()
         let store = SettingsStore(defaults: defaults)
         store.theme = .frostedGlass
+        store.hoverCloseDelayMilliseconds = 5000
+        #expect(store.hoverCloseDelayMilliseconds == 500)
+        store.hoverCloseDelayMilliseconds = -5
+        #expect(store.hoverCloseDelayMilliseconds == 0)
         store.hoverDelayMilliseconds = 900
         store.agentServerPort = 80
         store.displayPolicy = .followActiveScreen
@@ -33,6 +38,7 @@ struct SettingsStoreTests {
         let reloaded = SettingsStore(defaults: defaults)
         #expect(reloaded.theme == .frostedGlass)
         #expect(reloaded.hoverDelayMilliseconds == 500)
+        #expect(reloaded.hoverCloseDelayMilliseconds == 0)
         #expect(reloaded.agentServerPort == 1024)
         #expect(reloaded.displayPolicy == .followActiveScreen)
     }

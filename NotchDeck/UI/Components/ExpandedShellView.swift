@@ -24,6 +24,7 @@ struct ExpandedShellView: View {
             HStack(spacing: 10) {
                 ModuleTabStrip(modules: modules, selected: selected, tokens: tokens) { module in
                     withAnimation(.smooth(duration: 0.25)) { model.selectedModule = module }
+                    model.onUserSelectedModule(module)
                 }
                 Spacer(minLength: 12)
                 ThemeSwitcher()

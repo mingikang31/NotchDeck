@@ -161,7 +161,11 @@ private struct EmptyChat: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Ask anything").font(.system(size: 14, weight: .semibold))
             Group {
-                Label("⌥Space opens this chat from anywhere", systemImage: "command")
+                ShortcutHint(
+                    action: .openAIChat,
+                    text: { "\($0) opens this chat from anywhere" },
+                    unsetText: "Set a shortcut in Settings → Shortcuts to open this chat from anywhere"
+                )
                 Label("⌘V pastes images and files as attachments", systemImage: "doc.on.clipboard")
                 Label("Drop files on the notch, or capture part of your screen", systemImage: "viewfinder")
             }

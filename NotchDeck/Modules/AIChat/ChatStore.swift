@@ -16,7 +16,7 @@ final class ChatStore {
     var isDropTargeted = false
     /// Tracked by the composer; ⌘V image/file paste only applies while it has focus.
     var isComposerFocused = false
-    /// Bumped to ask the composer to take keyboard focus (⌥Space).
+    /// Bumped to ask the composer to take keyboard focus (the Open AI Chat shortcut).
     private(set) var focusRequest = 0
 
     /// Wired by the container: re-open the notch on the chat / hide it (screenshot capture).

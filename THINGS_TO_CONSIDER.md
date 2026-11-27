@@ -45,7 +45,18 @@ Or open `NotchDeck.xcodeproj` in Xcode and press ⌘R / ⌘U. New `.swift` files
 - **No Dock icon.** NotchDeck is a menu bar agent app (`LSUIElement`). Look for the ▭ icon in the menu bar.
 - **Open the notch:** hover the notch (it swells after ~150 ms, then opens), click it, or press **⌃⌥N**.
 - **Close it:** move the pointer away (default), click outside, or press ⌃⌥N again. Escape only works
-  once a text field in the notch has focus (arrives with AI Chat, Phase 4).
+  once a text field in the notch has focus.
+  - **Hover close delay** (Settings → General → Behavior, 0–500 ms like the open delay, default 200 ms): how long the pointer can
+    be outside the open notch before it closes; coming back within that time keeps it open. Greyed out when
+    *Collapse automatically* is "When clicking outside". (The hover *open* delay, 0–500 ms, default 150 ms,
+    sits right above it.)
+  - **When pointer-exit doesn't close it (on purpose):** opened by a *shortcut* (⌃⌥N, Open AI Chat, Open File
+    Tray, Toggle Camera Mirror) or an approval card. It stays until you press the shortcut again or click
+    outside. A *module* shortcut's hold ends as soon as you click a different tab; ⌃⌥N's hold covers every tab.
+  - It also stays open while a text field holds **unsent text** (a chat draft, a to-do being typed). Once the
+    field is empty (sent / cleared), moving away closes it again.
+- **Shortcut hints follow your settings:** the chat's "… opens this chat from anywhere" names whatever key
+  you recorded in Settings → Shortcuts (or says to set one), and updates immediately when you change it.
 - **Quit / reopen:** right-click the notch → *Quit NotchDeck*, or Settings → General → *Quit NotchDeck*,
   or the menu bar icon → *Quit NotchDeck*. **The menu bar icon can be invisible:** when the menu bar has
   more icons than fit, macOS hides the overflow behind the notch. That's why Quit also lives on the notch
@@ -227,6 +238,19 @@ which gives the app a **stable identity across every version and update**.
   - the item is labelled plainly "NotchDeck" ("NotchDeck license and API keys" in Keychain Access).
   - Code: `SecretsVault` and `SystemKeychain` in `NotchDeck/Core/Licensing/KeychainHelper.swift`; tests in
     `SecretsVaultTests`.
+
+### Bug fixed 2026-11-26: saved keys disappearing on every other launch
+- **Symptom:** API keys (and the license record, same item) were "sometimes saved, sometimes not" across rebuilds.
+- **Cause:** at launch the vault first looks in the data protection keychain. Development builds can *read*
+  it (they get "not found") but can't *write* to it. The one-time "move from the login keychain" step then
+  wrote the item back to the login keychain (the fallback) and **deleted that same item**. That launch still
+  worked from memory; the next launch found nothing. Re-entering a key saved it again, and the launch after
+  that deleted it again.
+- **Fix:** the login copy is deleted only after a copy really lands in the data protection keychain.
+  `KeychainRealTests` reproduces it against the real keychain under a throwaway service name (3 relaunches
+  in a row), and cleans up after itself.
+- Keys lost before the fix need entering once more; after that they persist across rebuilds. The
+  once-per-rebuild "confidential information" prompt below is unchanged (development builds only).
 
 ### What to do while developing
 - **When the prompt appears after a rebuild:** enter your Mac password and choose **Always Allow**. It won't
@@ -515,6 +539,26 @@ which gives the app a **stable identity across every version and update**.
   marker. Copying a clip back is not re-recorded. Images over 12 MB are skipped.
 - Kept in memory only, on purpose: clipboard history often contains secrets.
 
+### Hover / collapse state machine
+- **Bug fixed 2026-11-26 ("sometimes it doesn't collapse when the pointer leaves"):** pointer-exit collapse
+  was skipped whenever the panel had keyboard focus. The panel gets focus from a text field click (AI Chat,
+  To-Dos), the chat shortcut or an approval card, and **keeps it until the notch closes**, even after
+  switching to a tab with no text field. So after using any text field the notch only closed on a click
+  outside. Plain button clicks don't give focus (checked experimentally), which is why it looked random.
+  Now only *unsent text in the focused field* holds it open.
+- Shortcut holds (`isPinnedOpen`) are tied to the module they opened (`pinnedModule`); a tab click on another
+  module ends them (and collapses right away if the pointer has already left). The whole-notch toggle has no
+  module and keeps its hold.
+- `CollapseBehaviorTests` drive the real `NotchPanelController` with a simulated pointer
+  (`pointerLocation` is injectable). Their panels are **ordered out and transparent**: an earlier version
+  showed real panels on the screen, which opened and closed the notch by itself while the tests ran.
+  They can't give the panel real keyboard focus without stealing it from your app, so the "focus left over
+  from a text field" case is covered by an empty focused text field instead.
+- The close delay used to be a fixed 220 ms; it's now the *Hover close delay* setting (default 200 ms).
+- Under the full parallel test run the main thread is busy, and the 200 ms collapse can take ~0.6 s; tests
+  wait for the state (up to 3 s) instead of sleeping a fixed time.
+- Known flaky (pre-existing): `requestIsWithdrawnWhenClaudeCodeHangsUp` failed once under load.
+
 ### Updates (Sparkle)
 - **Sparkle stays dormant** until `SPARKLE_FEED_URL` (https) and `SPARKLE_PUBLIC_ED_KEY` are set in
   `Config/NotchDeck.xcconfig`. Generate the EdDSA key with Sparkle's `generate_keys` tool (it stores the
@@ -656,6 +700,17 @@ Scripts/                       license-keygen.swift
 ---
 
 ## 9. Log
+
+- **2026-11-26 — Hover close delay.** New Settings → General slider (0–500 ms, default 200 ms; max lowered from 1000 ms at the user’s request) replacing the
+  fixed 220 ms pointer-exit grace. 183 tests.
+
+- **2026-11-26 — Keychain fix.** Saved API keys / license record no longer vanish every other launch (the
+  data-protection migration deleted the login item after falling back to it). Real-keychain regression
+  tests added. 180 tests.
+
+- **2026-11-26 — Collapse + shortcut-hint fixes.** Pointer-exit collapse no longer blocked by leftover keyboard
+  focus (only unsent text holds it open); module-shortcut holds end when another tab is clicked; the chat's
+  shortcut hint shows the recorded shortcut live. New controller-level collapse tests, run off screen. 177 tests.
 
 - **2026-11-26 — Phase 6 committed** after the user's initial review; minor adjustments to follow.
 - **2026-11-26 — Phase 6 built.** Live Activities (IOPowerSources battery pills + card with watts / health,

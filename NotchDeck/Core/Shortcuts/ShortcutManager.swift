@@ -82,3 +82,14 @@ final class ShortcutManager {
         KeyboardShortcuts.reset(ShortcutAction.allCases.map(\.name))
     }
 }
+
+extension ShortcutAction {
+    /// Posted by KeyboardShortcuts whenever a recorder changes a shortcut. (The library's constant is
+    /// internal; the name is part of its stable behavior and is what its own views observe.)
+    static let didChangeNotification = Notification.Name("KeyboardShortcuts_shortcutByNameDidChange")
+
+    /// The key combination as macOS menus show it ("⌥Space"), or nil when none is recorded.
+    var currentShortcutDescription: String? {
+        KeyboardShortcuts.getShortcut(for: name)?.description
+    }
+}
