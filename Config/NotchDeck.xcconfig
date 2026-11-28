@@ -13,6 +13,9 @@ LICENSE_API_BASE_URL[config=Debug] = http:/$()/127.0.0.1:8787
 LICENSE_PUBLIC_KEY =
 LICENSE_PUBLIC_KEY[config=Debug] = 4jhHeTsZyswer0ANXTvI8GHDDL5WpZM4yCgVKwnWSYY=
 
+// Free-trial length in days. Tester builds override it (Scripts/package-for-testers.sh --trial-days N).
+TRIAL_DAYS = 7
+
 // Where "Buy NotchDeck" points.
 PURCHASE_URL = https:/$()/notchdeck.example/buy
 

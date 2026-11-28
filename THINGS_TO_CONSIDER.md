@@ -100,6 +100,21 @@ hardened runtime won't launch, see §4), quits the running copy, replaces `/Appl
 opens it. Each install may re-ask for Keychain access and permissions (ad-hoc signing); settings, the license
 and API keys carry over. Debug builds use about 2× the CPU of Release.
 
+**To let friends try it** (no building on their side):
+
+```sh
+./Scripts/package-for-testers.sh                  # 90-day trial
+./Scripts/package-for-testers.sh --trial-days 30
+```
+
+Builds a universal (Apple silicon + Intel) Release with a longer trial (`TRIAL_DAYS` build setting → `NDTrialDays`;
+normal builds stay 7 days), verifies architectures / signature / trial length, and zips it with `ditto` (plain
+`zip` can break Sparkle's symlinks) together with a "How to open NotchDeck.txt" note for the testers. Output:
+`TestTrial/NotchDeck-<version>-<N>day-trial.zip` (`TestTrial/` is git-ignored). Testers have to allow the
+ad-hoc app once (System Settings → Privacy & Security → Open Anyway, or `xattr -dr com.apple.quarantine`).
+License activation isn't configured in these builds (no license server yet), so the long trial is what gives
+testers time. Don't hand out the master key for this: approvals are offline and can't be taken back.
+
 Or open `NotchDeck.xcodeproj` in Xcode and press ⌘R / ⌘U. New `.swift` files dropped into
 `NotchDeck/` or `NotchDeckTests/` are picked up automatically (synchronized folders); no project edits needed.
 
@@ -911,6 +926,11 @@ lyrics sync, visualizer accent, usage settings layout.
 ---
 
 ## 9. Log
+
+- **2026-11-27 — Tester builds.** Trial length is now a build setting (`TRIAL_DAYS` in `Config/NotchDeck.xcconfig`,
+  default 7, read from `NDTrialDays`, clamped 1–365). `Scripts/package-for-testers.sh` makes a universal,
+  90-day-trial zip with an instructions note into `TestTrial/` (git-ignored by the user) for friends to try
+  without building. Verified the unzipped app (signature, x86_64 + arm64, 90 days, Sparkle symlinks). 230 tests.
 
 - **2026-11-26 — install-local.sh fix.** First run failed with `DEST…: unbound variable`: macOS's bash 3.2 reads
   non-ASCII text right after a bare `$NAME` as part of the name. Variables are now `${NAME}`, messages ASCII, and

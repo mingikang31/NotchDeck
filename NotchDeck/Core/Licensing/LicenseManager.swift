@@ -7,11 +7,24 @@ import Observation
 
 /// Licensing endpoints and keys, read from Info.plist (populated by Config/NotchDeck.xcconfig).
 struct LicenseConfiguration {
+    static let defaultTrialDays = 7
+    static let trialDaysRange = 1...365
+
     var apiBaseURL: URL?
     var publicKey: Curve25519.Signing.PublicKey?
     var purchaseURL: URL?
+    /// Free-trial length. 7 normally; tester builds can set more (`TRIAL_DAYS`, see
+    /// Scripts/package-for-testers.sh).
+    var trialDays = LicenseConfiguration.defaultTrialDays
 
     var isActivationAvailable: Bool { apiBaseURL != nil && publicKey != nil }
+    var trialDuration: TimeInterval { TimeInterval(trialDays) * 24 * 60 * 60 }
+
+    /// `NDTrialDays` from Info.plist: a whole number of days, clamped to 1…365; anything else → 7.
+    static func trialDays(from raw: String?) -> Int {
+        guard let days = raw.flatMap({ Int($0.trimmingCharacters(in: .whitespaces)) }) else { return defaultTrialDays }
+        return min(max(days, trialDaysRange.lowerBound), trialDaysRange.upperBound)
+    }
 
     static func fromMainBundle() -> LicenseConfiguration {
         func value(_ key: String) -> String? {
@@ -25,7 +38,8 @@ struct LicenseConfiguration {
         return LicenseConfiguration(
             apiBaseURL: value("NDLicenseAPIBaseURL").flatMap(URL.init(string:)),
             publicKey: publicKey,
-            purchaseURL: value("NDPurchaseURL").flatMap(URL.init(string:))
+            purchaseURL: value("NDPurchaseURL").flatMap(URL.init(string:)),
+            trialDays: trialDays(from: value("NDTrialDays"))
         )
     }
 }
@@ -112,7 +126,8 @@ enum LicenseActivity: Equatable {
 /// 7-day trial + one-time license activation with offline Ed25519 receipt verification.
 @Observable
 final class LicenseManager {
-    static let trialDuration: TimeInterval = 7 * 24 * 60 * 60
+    /// The standard trial length (tester builds may use a longer `configuration.trialDuration`).
+    static let trialDuration = TimeInterval(LicenseConfiguration.defaultTrialDays) * 24 * 60 * 60
     static let vaultAccount = "license.vault"
     private static let lastSeenWriteInterval: TimeInterval = 60 * 60
     /// Small allowance for clock skew before a future-dated trial start counts as tampering.
@@ -257,7 +272,7 @@ final class LicenseManager {
               vault.trialStartedAt <= effectiveNow.addingTimeInterval(Self.clockSkewTolerance) else {
             return .trialExpired(.tampered)
         }
-        let endsAt = vault.trialStartedAt.addingTimeInterval(Self.trialDuration)
+        let endsAt = vault.trialStartedAt.addingTimeInterval(configuration.trialDuration)
         let remaining = endsAt.timeIntervalSince(effectiveNow)
         guard remaining > 0 else { return .trialExpired(.elapsed) }
         return .trial(daysRemaining: Int((remaining / 86_400).rounded(.up)), endsAt: endsAt)

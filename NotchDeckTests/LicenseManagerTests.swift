@@ -63,11 +63,12 @@ private struct Harness {
     let server = MockLicenseServer()
     let clock = TestClock()
 
-    func manager(machineID: String = "machine-A", store: SecureStore? = nil) -> LicenseManager {
+    func manager(machineID: String = "machine-A", store: SecureStore? = nil, trialDays: Int = LicenseConfiguration.defaultTrialDays) -> LicenseManager {
         let clock = clock
         return LicenseManager(
             store: store ?? self.store,
-            configuration: LicenseConfiguration(apiBaseURL: URL(string: "https://license.test"), publicKey: server.publicKey, purchaseURL: nil),
+            configuration: LicenseConfiguration(apiBaseURL: URL(string: "https://license.test"), publicKey: server.publicKey, purchaseURL: nil,
+                                                trialDays: trialDays),
             client: server,
             machineID: machineID,
             machineName: "Test Mac",
@@ -94,6 +95,23 @@ struct TrialTests {
         #expect(m.status == .trial(daysRemaining: 7, endsAt: h.clock.now.addingTimeInterval(LicenseManager.trialDuration)))
         #expect(m.isUnlocked)
         #expect(m.trialBadgeText == "7 days left in free trial")
+    }
+
+    /// Tester builds (Scripts/package-for-testers.sh) set a longer trial through TRIAL_DAYS → NDTrialDays.
+    @Test func testerBuildsCanHaveALongerTrial() {
+        let h = Harness()
+        let m = h.manager(trialDays: 90)
+        m.refresh()
+        #expect(m.status == .trial(daysRemaining: 90, endsAt: h.clock.now.addingTimeInterval(90 * 86_400)))
+        #expect(m.trialBadgeText == "90 days left in free trial")
+        #expect(LicenseConfiguration.trialDays(from: "90") == 90)
+        #expect(LicenseConfiguration.trialDays(from: " 30 ") == 30)
+        #expect(LicenseConfiguration.trialDays(from: nil) == 7)              // normal builds
+        #expect(LicenseConfiguration.trialDays(from: "$(TRIAL_DAYS)") == 7)  // unexpanded setting
+        #expect(LicenseConfiguration.trialDays(from: "0") == 1)
+        #expect(LicenseConfiguration.trialDays(from: "9999") == 365)
+        // The app under test is a normal build: 7 days.
+        #expect(LicenseConfiguration.fromMainBundle().trialDays == 7)
     }
 
     @Test func trialCountsDownInWholeDays() {

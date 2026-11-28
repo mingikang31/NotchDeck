@@ -7,6 +7,8 @@
 	<string>$(LICENSE_API_BASE_URL)</string>
 	<key>NDLicensePublicKey</key>
 	<string>$(LICENSE_PUBLIC_KEY)</string>
+	<key>NDTrialDays</key>
+	<string>$(TRIAL_DAYS)</string>
 	<key>NDPurchaseURL</key>
 	<string>$(PURCHASE_URL)</string>
 	<key>SUFeedURL</key>
