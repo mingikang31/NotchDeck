@@ -95,6 +95,12 @@ xcodebuild -project NotchDeck.xcodeproj -scheme NotchDeck -derivedDataPath build
 ./Scripts/install-local.sh
 ```
 
+**License in the personal build:** it trusts the DEV public key and talks to the local DEV license server
+(`http://127.0.0.1:8787`), like Debug builds, so the master-key activation shows "Master (unlimited)". To
+(re)activate: `node Server/license-proxy/dev-server.mjs`, then Settings → License → master key (from `.env`). After
+that it works offline; the server isn't needed. (Before 2026-11-27 the personal build had no license key, so it
+silently fell back to the trial.)
+
 It builds Release with the hardened runtime off (into `build/PerfRelease/`; an ad-hoc Release build with the
 hardened runtime won't launch, see §4), quits the running copy, replaces `/Applications/NotchDeck.app` and
 opens it. Each install may re-ask for Keychain access and permissions (ad-hoc signing); settings, the license
@@ -926,6 +932,12 @@ lyrics sync, visualizer accent, usage settings layout.
 ---
 
 ## 9. Log
+
+- **2026-11-27 — Personal build keeps the master license.** The `/Applications` copy is a Release build with no
+  license public key, so it couldn't verify any activation and showed the trial. Also found that this Mac had **no
+  activation at all**: the trial restarted 2026-11-26 18:00, when the Keychain bug (fixed that day) deleted the
+  vault that held both API keys and the master-key activation. `install-local.sh` now builds with the DEV public
+  key + local DEV server URL; re-activate once with the master key (dev server running), then it's offline.
 
 - **2026-11-27 — Tester builds.** Trial length is now a build setting (`TRIAL_DAYS` in `Config/NotchDeck.xcconfig`,
   default 7, read from `NDTrialDays`, clamped 1–365). `Scripts/package-for-testers.sh` makes a universal,

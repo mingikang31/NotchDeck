@@ -10,6 +10,14 @@
 # After each install, macOS may ask once more for Keychain access (choose "Always Allow") and for
 # permissions like Calendar or Spotify control, because every ad-hoc build looks like a new app to it.
 # Settings, the license and saved API keys carry over (they belong to the bundle ID).
+#
+# License: your own Mac is activated (master key) with a receipt signed by the DEVELOPMENT signing key,
+# which only Debug builds trust. This personal build trusts the same public DEV key (from
+# Config/NotchDeck.xcconfig; public, not a secret), so it shows "Master (unlimited)" instead of falling
+# back to the trial. It also uses the local development license server (http://127.0.0.1:8787), so you
+# can (re)activate with your master key: run `node Server/license-proxy/dev-server.mjs`, then
+# Settings → License. Once activated it works offline; the server isn't needed afterwards.
+# Tester builds (package-for-testers.sh) don't get any of this.
 
 set -euo pipefail
 # Note: variables are always written as ${NAME}. macOS's bash 3.2 reads non-ASCII text right after a bare
@@ -19,11 +27,18 @@ cd "$(dirname "$0")/.."
 APP="NotchDeck"
 BUILT="build/PerfRelease/Build/Products/Release/${APP}.app"
 DEST="/Applications/${APP}.app"
+# The DEV public key, so the receipt from your master-key activation verifies in this build.
+DEV_PUBLIC_KEY="$(sed -n 's/^LICENSE_PUBLIC_KEY\[config=Debug\][[:space:]]*=[[:space:]]*//p' Config/NotchDeck.xcconfig | tr -d '[:space:]')"
+if [ -z "${DEV_PUBLIC_KEY}" ]; then
+  echo "Couldn't read the DEV LICENSE_PUBLIC_KEY from Config/NotchDeck.xcconfig." >&2
+  exit 1
+fi
 
 echo "==> Building optimized ${APP} (Release)..."
 xcodebuild -project NotchDeck.xcodeproj -scheme NotchDeck -configuration Release \
   -destination "platform=macOS,arch=$(uname -m)" \
-  -derivedDataPath build/PerfRelease ENABLE_HARDENED_RUNTIME=NO -quiet build
+  -derivedDataPath build/PerfRelease ENABLE_HARDENED_RUNTIME=NO \
+  LICENSE_PUBLIC_KEY="${DEV_PUBLIC_KEY}" LICENSE_API_BASE_URL="http://127.0.0.1:8787" -quiet build
 
 if [ ! -d "${BUILT}" ]; then
   echo "Build finished but ${BUILT} is missing." >&2
